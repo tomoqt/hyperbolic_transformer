@@ -21,13 +21,24 @@ import time
 import math
 import pickle
 from contextlib import nullcontext
+import argparse
 
 import numpy as np
 import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 
-from model import GPTConfig, GPT
+# Add argument parsing before the model import
+parser = argparse.ArgumentParser()
+parser.add_argument('--use_old_model', type=lambda x: (str(x).lower() == 'true'), default=False, 
+                   help='Use model_old.py instead of model.py')
+args, unknown = parser.parse_known_args()
+
+# Conditional import based on argument
+if args.use_old_model:
+    from model_old import GPTConfig, GPT
+else:
+    from model import GPTConfig, GPT
 
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
@@ -70,11 +81,12 @@ min_lr = 6e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchi
 backend = 'nccl' # 'nccl', 'gloo', etc.
 # system
 device = 'cuda' # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
-dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
+dtype = 'float16'#'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
 compile = True # use PyTorch 2.0 to compile the model to be faster
 # -----------------------------------------------------------------------------
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
 exec(open('configurator.py').read()) # overrides from command line or config file
+
 config = {k: globals()[k] for k in config_keys} # will be useful for logging
 # -----------------------------------------------------------------------------
 
@@ -231,7 +243,7 @@ def estimate_loss():
 def get_lr(it):
     # 1) linear warmup for warmup_iters steps
     if it < warmup_iters:
-        return learning_rate * (it + 1) / (warmup_iters + 1)
+        return learning_rate * it / warmup_iters
     # 2) if it > lr_decay_iters, return min learning rate
     if it > lr_decay_iters:
         return min_lr

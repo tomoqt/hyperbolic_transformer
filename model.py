@@ -44,26 +44,7 @@ class HyperbolicCausalSelfAttention(nn.Module):
         self.n_head = config.n_head
         self.n_embd = config.n_embd
         self.dropout = config.dropout
-        
-        # Learnable curvature parameter per head
-        self.c = nn.Parameter(torch.ones(config.n_head, 1, 1))
-        
-        # Initialize curvature based on config
-        half_heads = config.n_head // 2
-        if config.curvature_init == 'mixed':
-            # Half heads with curvature 0 (Euclidean), half with curvature 1 (hyperbolic)
-            self.c.data[:half_heads] = 0.0
-            self.c.data[half_heads:] = 1.0
-        elif config.curvature_init == 'euclidean':
-            # All heads with curvature 0 (Euclidean)
-            self.c.data.fill_(0.0)
-        elif config.curvature_init == 'hyperbolic':
-            # All heads with curvature 1 (hyperbolic)
-            self.c.data.fill_(1.0)
-        elif config.curvature_init == 'random':
-            # Random initialization between 0 and 1
-            self.c.data.uniform_(0.0, 1.0)
-        
+        self.c = config.curvature
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
         if not self.flash:
@@ -77,66 +58,39 @@ class HyperbolicCausalSelfAttention(nn.Module):
         x_norm = torch.norm(x, dim=-1, keepdim=True)
         y_norm = torch.norm(y, dim=-1, keepdim=True)
         
-        # Get curvature for the right dimensions based on context
-        c = self.c
-        if x.dim() == 4:  # If operating on per-head basis
-            # Make sure c is properly broadcast to the batch (head) dimension
-            c = c.view(1, self.n_head, 1, 1)
-        
         # Compute the inner product
         inner_product = torch.sum(x * y, dim=-1, keepdim=True)
         
         # Compute numerator and denominator following the standard formula
-        numerator = (1 + 2*c * inner_product + c * (y_norm ** 2)) * x + \
-                    (1 - c * (x_norm ** 2)) * y
-        denominator = 1 + 2*c * inner_product + (c ** 2) * (x_norm ** 2) * (y_norm ** 2)
+        numerator = (1 + 2*self.c * inner_product + self.c * (y_norm ** 2)) * x + \
+                    (1 - self.c * (x_norm ** 2)) * y
+        denominator = 1 + 2*self.c * inner_product + (self.c ** 2) * (x_norm ** 2) * (y_norm ** 2)
         
         return numerator / denominator
     
-    def scaling_factor(self, x):
+    def scaling_factor(self,x):
         x_norm = torch.norm(x, dim=-1, keepdim=True)
-        c = self.c
-        if x.dim() == 4:  # If operating on per-head basis
-            c = c.view(1, self.n_head, 1, 1)
-        return 2/(1+c*x_norm**2)
+        return 2/(1+self.c*x_norm**2)
 
-    def expmap(self, x, v):#assuming x,v [B,nh,T,C]
+    def expmap(self,x,v):#assuming x,v [B,nh,T,C]
         scaling_factor_x = self.scaling_factor(x)
         v_norm = torch.norm(v, dim=-1, keepdim=True)
-        c = self.c.view(1, self.n_head, 1, 1)
-        # Handle the case where c is close to 0 (Euclidean case)
-        c_safe = c.clone()
-        c_safe[c_safe < 1e-10] = 1e-10  # Small positive value to avoid division by zero
-        second_term = (1/c_safe**0.5)*torch.tanh((c_safe*scaling_factor_x*v_norm**2/2)**0.5)*v/v_norm
-        # For c close to 0, use Euclidean mapping v directly
-        euclidean_mask = (c < 1e-10).float()
-        second_term = euclidean_mask * v + (1 - euclidean_mask) * second_term
-        return self.mobius_addition(x, second_term)
+        second_term = (1/self.c**0.5)*torch.tanh((self.c*scaling_factor_x*v_norm**2/2)**0.5)*v/v_norm
+        return self.mobius_addition(x,second_term)
 
-    def logmap(self, x, u):
+    def logmap(self,x,u):
         scaling_factor_x = self.scaling_factor(x)
-        mobius_addition = self.mobius_addition(-x, u)
-        addition_norm = torch.norm(mobius_addition, dim=-1, keepdim=True)
-        c = self.c
-        if x.dim() == 4:  # If operating on per-head basis
-            c = c.view(1, self.n_head, 1, 1)
-        # Handle the case where c is close to 0 (Euclidean case)
-        c_safe = c.clone()
-        c_safe[c_safe < 1e-10] = 1e-10  # Small positive value to avoid division by zero
-        constant_factor = 2/(scaling_factor_x*c_safe**0.5)
+        mobius_addition = self.mobius_addition(-x,u)
+        addition_norm = torch.norm(mobius_addition,dim=-1,keepdim=True)
+        constant_factor = 2/(scaling_factor_x*self.c**0.5)
         direction_factor = mobius_addition/addition_norm
-        result = constant_factor * torch.arctanh((c_safe*addition_norm)**0.5) * direction_factor
-        # For c close to 0, use Euclidean mapping (u-x)
-        euclidean_mask = (c < 1e-10).float()
-        euclidean_result = u - x
-        result = euclidean_mask * euclidean_result + (1 - euclidean_mask) * result
-        return result
+        return constant_factor * torch.arctanh((self.c*addition_norm)**0.5) * direction_factor
 
     def forward(self, x):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
-        node_avg = torch.mean(x, dim=1, keepdim=True)
+
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
-        x_hyperbolic = self.logmap(node_avg, x)
+        x_hyperbolic = self.logmap(x,x)
         q, k, v  = self.c_attn(x_hyperbolic).split(self.n_embd, dim=2)
         k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
@@ -154,10 +108,7 @@ class HyperbolicCausalSelfAttention(nn.Module):
             att = self.attn_dropout(att)
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
-        
-        # Apply expmap to convert back from tangent space to hyperbolic space
-        y = self.expmap(node_avg, y)
-        
+        y = self.expmap(x,y)
         # output projection
         y = self.resid_dropout(self.c_proj(y))
         return y
@@ -191,10 +142,6 @@ class Block(nn.Module):
         x = x + self.attn(self.ln_1(x))
         x = x + self.mlp(self.ln_2(x))
         return x
-    
-    def get_curvature_values(self):
-        """Return the current curvature values for this block's attention heads"""
-        return self.attn.c.data.view(-1).tolist()
 
 @dataclass
 class GPTConfig:
@@ -205,7 +152,7 @@ class GPTConfig:
     n_embd: int = 768
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
-    curvature_init: str = 'mixed' # 'mixed', 'euclidean', 'hyperbolic', or 'random'
+    curvature: float = 1.0 # Curvature parameter for hyperbolic space (c > 0 for hyperbolic geometry)
 
 class GPT(nn.Module):
 
@@ -300,7 +247,7 @@ class GPT(nn.Module):
         assert model_type in {'gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'}
         override_args = override_args or {} # default to empty dict
         # only dropout can be overridden see more notes below
-        assert all(k in {'dropout', 'curvature_init'} for k in override_args)
+        assert all(k == 'dropout' for k in override_args)
         from transformers import GPT2LMHeadModel
         print("loading weights from pretrained gpt: %s" % model_type)
 
@@ -315,14 +262,10 @@ class GPT(nn.Module):
         config_args['vocab_size'] = 50257 # always 50257 for GPT model checkpoints
         config_args['block_size'] = 1024 # always 1024 for GPT model checkpoints
         config_args['bias'] = True # always True for GPT model checkpoints
-        
-        # we can override the dropout rate and curvature init, if desired
+        # we can override the dropout rate, if desired
         if 'dropout' in override_args:
             print(f"overriding dropout rate to {override_args['dropout']}")
             config_args['dropout'] = override_args['dropout']
-        if 'curvature_init' in override_args:
-            print(f"overriding curvature initialization to {override_args['curvature_init']}")
-            config_args['curvature_init'] = override_args['curvature_init']
         # create a from-scratch initialized minGPT model
         config = GPTConfig(**config_args)
         model = GPT(config)
@@ -424,10 +367,3 @@ class GPT(nn.Module):
             idx = torch.cat((idx, idx_next), dim=1)
 
         return idx
-
-    def get_all_curvatures(self):
-        """Get curvature values from all attention heads in all layers"""
-        curvatures = {}
-        for i, block in enumerate(self.transformer.h):
-            curvatures[f'layer_{i}'] = block.get_curvature_values()
-        return curvatures

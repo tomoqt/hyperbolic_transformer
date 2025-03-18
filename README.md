@@ -18,6 +18,32 @@ This project aims to implement and test mixed curvature transformers - models th
 
 We use the minimal and efficient nanoGPT implementation as our foundation, modifying key components to incorporate non-Euclidean geometries. The code is designed to be as lightweight and readable as possible while enabling meaningful experiments in representation geometry.
 
+## Dataset Preparation
+
+For experimenting with mixed curvature transformers, we use the same dataset preparation approach as the original nanoGPT:
+
+### Shakespeare Dataset (Small Scale Testing)
+
+For quick experimentation, the Shakespeare dataset provides a lightweight option:
+
+```sh
+python data/shakespeare_char/prepare.py
+```
+
+This creates `train.bin` and `val.bin` files with character-level tokenization.
+
+### OpenWebText Dataset (Full Scale Training)
+
+For more extensive training, prepare the OpenWebText dataset:
+
+```sh
+python data/openwebtext/prepare.py
+```
+
+This downloads and tokenizes the OpenWebText dataset, creating `train.bin` and `val.bin` files with GPT-2 BPE tokenization.
+
+Both datasets are prepared to be used with the training scripts. For mixed curvature experiments, we can use these datasets to compare performance against baseline Euclidean transformer architectures.
+
 ## Getting Started
 
 [Installation and usage instructions will be added as the project develops]
