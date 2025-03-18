@@ -45,6 +45,7 @@ class HyperbolicCausalSelfAttention(nn.Module):
         self.n_embd = config.n_embd
         self.dropout = config.dropout
         self.c = config.curvature
+        self.map_back_after_attention = config.map_back_after_attention
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
         if not self.flash:
@@ -90,7 +91,8 @@ class HyperbolicCausalSelfAttention(nn.Module):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
-        x_hyperbolic = self.logmap(x,x)
+        node_avg = torch.mean(x, dim=1,keepdim=True)
+        x_hyperbolic = self.logmap(node_avg,x)
         q, k, v  = self.c_attn(x_hyperbolic).split(self.n_embd, dim=2)
         k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
@@ -108,7 +110,8 @@ class HyperbolicCausalSelfAttention(nn.Module):
             att = self.attn_dropout(att)
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
-        y = self.expmap(x,y)
+        if self.map_back_after_attention:
+            y = self.expmap(node_avg,y)
         # output projection
         y = self.resid_dropout(self.c_proj(y))
         return y
@@ -121,12 +124,15 @@ class MLP(nn.Module):
         self.gelu    = nn.GELU()
         self.c_proj  = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
-
+        self.map_back_after_attention = config.map_back_after_attention
     def forward(self, x):
         x = self.c_fc(x)
         x = self.gelu(x)
         x = self.c_proj(x)
         x = self.dropout(x)
+        if not self.map_back_after_attention:
+            node_avg = torch.mean(x, dim=1,keepdim=True)
+            x = self.expmap(node_avg,x)
         return x
 
 class Block(nn.Module):
@@ -153,6 +159,7 @@ class GPTConfig:
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
     curvature: float = 1.0 # Curvature parameter for hyperbolic space (c > 0 for hyperbolic geometry)
+    map_back_after_attention: bool = True # whether to map back to hyperbolic space after attention or after the MLP
 
 class GPT(nn.Module):
 
