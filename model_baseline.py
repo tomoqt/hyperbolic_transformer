@@ -15,44 +15,6 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-# Hyperbolic geometry utility functions
-def mobius_addition(x, y, c):
-    """Mobius addition in hyperbolic space with curvature c"""
-    # Compute norms
-    x_norm = torch.norm(x, dim=-1, keepdim=True)
-    y_norm = torch.norm(y, dim=-1, keepdim=True)
-    
-    # Compute the inner product
-    inner_product = torch.sum(x * y, dim=-1, keepdim=True)
-    
-    # Compute numerator and denominator following the standard formula
-    numerator = (1 + 2*c * inner_product + c * (y_norm ** 2)) * x + \
-                (1 - c * (x_norm ** 2)) * y
-    denominator = 1 + 2*c * inner_product + (c ** 2) * (x_norm ** 2) * (y_norm ** 2)
-    
-    return numerator / denominator
-
-def scaling_factor(x, c):
-    """Compute scaling factor for hyperbolic space with curvature c"""
-    x_norm = torch.norm(x, dim=-1, keepdim=True)
-    return 2/(1+c*x_norm**2)
-
-def expmap(x, v, c):
-    """Exponential map from tangent space to hyperbolic space with curvature c"""
-    scaling_factor_x = scaling_factor(x, c)
-    v_norm = torch.norm(v, dim=-1, keepdim=True)
-    second_term = (1/c**0.5)*torch.tanh((c*scaling_factor_x*v_norm**2/2)**0.5)*v/v_norm
-    return mobius_addition(x, second_term, c)
-
-def logmap(x, u, c):
-    """Logarithmic map from hyperbolic space to tangent space with curvature c"""
-    scaling_factor_x = scaling_factor(x, c)
-    mob_addition = mobius_addition(-x, u, c)
-    addition_norm = torch.norm(mob_addition, dim=-1, keepdim=True)
-    constant_factor = 2/(scaling_factor_x*c**0.5)
-    direction_factor = mob_addition/addition_norm
-    return constant_factor * torch.arctanh((c*addition_norm)**0.5) * direction_factor
-
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
 
@@ -64,7 +26,7 @@ class LayerNorm(nn.Module):
     def forward(self, input):
         return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
 
-class HyperbolicCausalSelfAttention(nn.Module):
+class CausalSelfAttention(nn.Module):
 
     def __init__(self, config):
         super().__init__()
@@ -79,8 +41,6 @@ class HyperbolicCausalSelfAttention(nn.Module):
         self.n_head = config.n_head
         self.n_embd = config.n_embd
         self.dropout = config.dropout
-        self.c = config.curvature
-        self.map_back_after_attention = config.map_back_after_attention
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
         if not self.flash:
@@ -93,9 +53,7 @@ class HyperbolicCausalSelfAttention(nn.Module):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
-        node_avg = torch.mean(x, dim=1,keepdim=True)
-        x_hyperbolic = logmap(node_avg, x, self.c)
-        q, k, v  = self.c_attn(x_hyperbolic).split(self.n_embd, dim=2)
+        q, k, v  = self.c_attn(x).split(self.n_embd, dim=2)
         k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
@@ -112,8 +70,7 @@ class HyperbolicCausalSelfAttention(nn.Module):
             att = self.attn_dropout(att)
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
-        if self.map_back_after_attention:
-            y = expmap(node_avg, y, self.c)
+
         # output projection
         y = self.resid_dropout(self.c_proj(y))
         return y
@@ -126,17 +83,12 @@ class MLP(nn.Module):
         self.gelu    = nn.GELU()
         self.c_proj  = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
-        self.map_back_after_attention = config.map_back_after_attention
-        self.c = config.curvature
-        
+
     def forward(self, x):
         x = self.c_fc(x)
         x = self.gelu(x)
         x = self.c_proj(x)
         x = self.dropout(x)
-        if not self.map_back_after_attention:
-            node_avg = torch.mean(x, dim=1,keepdim=True)
-            x = expmap(node_avg, x, self.c)
         return x
 
 class Block(nn.Module):
@@ -144,7 +96,7 @@ class Block(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.ln_1 = LayerNorm(config.n_embd, bias=config.bias)
-        self.attn = HyperbolicCausalSelfAttention(config)
+        self.attn = CausalSelfAttention(config)
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
 
@@ -162,8 +114,6 @@ class GPTConfig:
     n_embd: int = 768
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
-    curvature: float = 1.0 # Curvature parameter for hyperbolic space (c > 0 for hyperbolic geometry)
-    map_back_after_attention: bool = True # whether to map back to hyperbolic space after attention or after the MLP
 
 class GPT(nn.Module):
 

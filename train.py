@@ -20,6 +20,7 @@ import os
 import time
 import math
 import pickle
+import inspect
 from contextlib import nullcontext
 import argparse
 
@@ -33,12 +34,6 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--use_old_model', type=lambda x: (str(x).lower() == 'true'), default=False, 
                    help='Use model_old.py instead of model.py')
 args, unknown = parser.parse_known_args()
-
-# Conditional import based on argument
-if args.use_old_model:
-    from model_old import GPTConfig, GPT
-else:
-    from model import GPTConfig, GPT
 
 # -----------------------------------------------------------------------------
 # Muon optimizer implementation
@@ -170,6 +165,7 @@ n_head = 12
 n_embd = 768
 dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
+use_baseline_model = False # whether to use the baseline model from model_baseline.py
 # adamw optimizer
 learning_rate = 6e-4 # max learning rate
 max_iters = 600000 # total number of training iterations
@@ -200,6 +196,16 @@ exec(open('configurator.py').read()) # overrides from command line or config fil
 
 config = {k: globals()[k] for k in config_keys} # will be useful for logging
 # -----------------------------------------------------------------------------
+
+# Import appropriate model based on configuration
+if args.use_old_model:
+    from model_old import GPTConfig, GPT
+elif use_baseline_model:
+    print("Using baseline model from model_baseline.py")
+    from model_baseline import GPTConfig, GPT
+else:
+    print("Using standard model from model.py")
+    from model import GPTConfig, GPT
 
 # various inits, derived attributes, I/O setup
 ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run?
