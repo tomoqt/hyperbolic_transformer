@@ -28,12 +28,7 @@ import numpy as np
 import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
-
-# Add argument parsing before the model import
-parser = argparse.ArgumentParser()
-parser.add_argument('--use_old_model', type=lambda x: (str(x).lower() == 'true'), default=False, 
-                   help='Use model_old.py instead of model.py')
-args, unknown = parser.parse_known_args()
+import torch.nn as nn
 
 # -----------------------------------------------------------------------------
 # Muon optimizer implementation
@@ -198,9 +193,7 @@ config = {k: globals()[k] for k in config_keys} # will be useful for logging
 # -----------------------------------------------------------------------------
 
 # Import appropriate model based on configuration
-if args.use_old_model:
-    from model_old import GPTConfig, GPT
-elif use_baseline_model:
+if use_baseline_model:
     print("Using baseline model from model_baseline.py")
     from model_baseline import GPTConfig, GPT
 else:
@@ -470,13 +463,29 @@ while True:
         losses = estimate_loss()
         print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
         if wandb_log:
-            wandb.log({
+            log_dict = {
                 "iter": iter_num,
                 "train/loss": losses['train'],
                 "val/loss": losses['val'],
                 "lr": lr,
                 "mfu": running_mfu*100, # convert to percentage
-            })
+            }
+            
+            # Add curvature values to the log if they exist
+            if hasattr(model.config, 'curvature_mode') and model.config.curvature_mode in ['parametric', 'random']:
+                for i, block in enumerate(model.transformer.h):
+                    if hasattr(block, 'c') and isinstance(block.c, nn.Parameter):
+                        c_value = block.c.detach().cpu().item()
+                        log_dict[f'curvature/block_{i}'] = c_value
+                
+                # Add curvature statistics
+                curvature_values = [log_dict[k] for k in log_dict.keys() if k.startswith('curvature/block_')]
+                if curvature_values:
+                    log_dict['curvature/avg'] = sum(curvature_values) / len(curvature_values)
+                    log_dict['curvature/min'] = min(curvature_values)
+                    log_dict['curvature/max'] = max(curvature_values)
+                    
+            wandb.log(log_dict)
         if losses['val'] < best_val_loss or always_save_checkpoint:
             best_val_loss = losses['val']
             if iter_num > 0:

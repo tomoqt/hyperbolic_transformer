@@ -21,7 +21,6 @@ def mobius_addition(x, y, c):
     # Compute norms
     x_norm = torch.norm(x, dim=-1, keepdim=True)
     y_norm = torch.norm(y, dim=-1, keepdim=True)
-    
     # Compute the inner product
     inner_product = torch.sum(x * y, dim=-1, keepdim=True)
     
@@ -66,7 +65,7 @@ class LayerNorm(nn.Module):
 
 class HyperbolicCausalSelfAttention(nn.Module):
 
-    def __init__(self, config):
+    def __init__(self, config, curvature):
         super().__init__()
         assert config.n_embd % config.n_head == 0
         # key, query, value projections for all heads, but in a batch
@@ -79,7 +78,7 @@ class HyperbolicCausalSelfAttention(nn.Module):
         self.n_head = config.n_head
         self.n_embd = config.n_embd
         self.dropout = config.dropout
-        self.c = config.curvature
+        self.c = curvature
         self.map_back_after_attention = config.map_back_after_attention
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
@@ -112,22 +111,24 @@ class HyperbolicCausalSelfAttention(nn.Module):
             att = self.attn_dropout(att)
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
+
         if self.map_back_after_attention:
             y = expmap(node_avg, y, self.c)
+
         # output projection
         y = self.resid_dropout(self.c_proj(y))
         return y
 
 class MLP(nn.Module):
 
-    def __init__(self, config):
+    def __init__(self, config, curvature):
         super().__init__()
         self.c_fc    = nn.Linear(config.n_embd, 4 * config.n_embd, bias=config.bias)
         self.gelu    = nn.GELU()
         self.c_proj  = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
         self.map_back_after_attention = config.map_back_after_attention
-        self.c = config.curvature
+        self.c = curvature
         
     def forward(self, x):
         x = self.c_fc(x)
@@ -143,10 +144,32 @@ class Block(nn.Module):
 
     def __init__(self, config):
         super().__init__()
+
+        if config.curvature_mode == 'fixed':
+            self.c = config.curvature
+        elif config.curvature_mode == 'parametric':
+            if config.curvature_initialization is None:
+                # Default to 1.0 if no initialization is provided
+                curvature_init = 1.0
+            else:
+                # In this case, curvature_initialization should be a list with n_layer elements
+                # Each block will take its corresponding initialization value
+                block_idx = getattr(config, '_block_idx', 0)  # Get block index if it exists
+                curvature_init = config.curvature_initialization[block_idx]
+            self.c = nn.Parameter(torch.tensor(curvature_init).view(1))
+            self.c.requires_grad = True
+        elif config.curvature_mode == 'random': #defaulting to random init
+            self.c = nn.Parameter(torch.rand(1))  # Single random value for the entire block
+            self.c.requires_grad = True
+        else:
+            raise ValueError(f"Invalid curvature mode: {config.curvature_mode}")
+
+
         self.ln_1 = LayerNorm(config.n_embd, bias=config.bias)
-        self.attn = HyperbolicCausalSelfAttention(config)
+        self.attn = HyperbolicCausalSelfAttention(config, curvature = self.c)
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
-        self.mlp = MLP(config)
+        self.mlp = MLP(config, curvature = self.c)
+
 
     def forward(self, x):
         x = x + self.attn(self.ln_1(x))
@@ -162,8 +185,28 @@ class GPTConfig:
     n_embd: int = 768
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
-    curvature: float = 1.0 # Curvature parameter for hyperbolic space (c > 0 for hyperbolic geometry)
+    curvature_mode: str = 'random' # 'fixed', 'parametric', or any other value for random init
+    curvature: float = 1.0 # Fixed curvature value when curvature_mode is 'fixed'
+    curvature_initialization: list = None # List of initial curvature values for parametric mode (one per layer when provided)
     map_back_after_attention: bool = True # whether to map back to hyperbolic space after attention or after the MLP
+    
+    def set_layer_curvatures(self, curvature_values):
+        """
+        Set per-layer curvature initialization values for parametric mode.
+        
+        Args:
+            curvature_values: Either a list of values (one per layer) or a single value to use for all layers
+        """
+        if self.curvature_mode != 'parametric':
+            print("Warning: Setting layer curvatures but mode is not 'parametric'")
+            
+        if isinstance(curvature_values, (int, float)):
+            # If a single value is provided, repeat it for all layers
+            self.curvature_initialization = [float(curvature_values)] * self.n_layer
+        else:
+            # Expect a list with length equal to n_layer
+            assert len(curvature_values) == self.n_layer, f"Expected {self.n_layer} curvature values, got {len(curvature_values)}"
+            self.curvature_initialization = list(curvature_values)
 
 class GPT(nn.Module):
 
@@ -197,6 +240,13 @@ class GPT(nn.Module):
         # report number of parameters
         print("number of parameters: %.2fM" % (self.get_num_params()/1e6,))
 
+    def _create_block(self, config, idx):
+        # Create a new config object with the block index set
+        import copy
+        block_config = copy.copy(config)
+        block_config._block_idx = idx
+        return Block(block_config)
+
     def get_num_params(self, non_embedding=True):
         """
         Return the number of parameters in the model.
@@ -216,6 +266,8 @@ class GPT(nn.Module):
                 torch.nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+        elif isinstance(module, nn.Parameter):
+            torch.nn.init.uniform_(module, a=0.0, b=1.0)
 
     def forward(self, idx, targets=None):
         device = idx.device
