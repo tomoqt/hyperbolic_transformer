@@ -92,7 +92,7 @@ class HyperbolicCausalSelfAttention(nn.Module):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
-        node_avg = torch.cumsum(x, dim=1,keepdim=True)/torch.arange(1,T+1,keepdim=True) 
+        node_avg = torch.cumsum(x, dim=1) / torch.arange(1, T+1, device=x.device, dtype=x.dtype).view(1, T, 1)
         x_hyperbolic = logmap(node_avg, x, self.c)
         q, k, v  = self.c_attn(x_hyperbolic).split(self.n_embd, dim=2)
         k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
