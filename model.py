@@ -48,9 +48,19 @@ def logmap(x, u, c):
     scaling_factor_x = scaling_factor(x, c)
     mob_addition = mobius_addition(-x, u, c)
     addition_norm = torch.norm(mob_addition, dim=-1, keepdim=True)
-    constant_factor = 2/(scaling_factor_x*c**0.5)
-    direction_factor = mob_addition/addition_norm
-    return constant_factor * torch.arctanh((c*addition_norm)**0.5) * direction_factor
+    constant_factor = 2 / (scaling_factor_x * c**0.5)
+    direction_factor = mob_addition / addition_norm
+    arg = torch.clamp((c * addition_norm) ** 0.5, min=-0.999, max=0.999)  # Single-line fix
+    return constant_factor * torch.arctanh(arg) * direction_factor
+
+def calculate_reference_point(x):
+    """Calculate reference point for hyperbolic operations"""
+    B, T, C = x.size()
+    ref_point = torch.zeros_like(x[:, :1, :])
+    if T > 1:
+        ref_point = x[:, :-1, :]
+        ref_point = F.pad(ref_point, (0, 0, 1, 0), mode='constant', value=0)
+    return ref_point
 
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
@@ -92,8 +102,8 @@ class HyperbolicCausalSelfAttention(nn.Module):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
-        node_avg = torch.cumsum(x, dim=1) / torch.arange(1, T+1, device=x.device, dtype=x.dtype).view(1, T, 1)
-        x_hyperbolic = logmap(node_avg, x, self.c)
+        reference_point = calculate_reference_point(x)
+        x_hyperbolic = logmap(reference_point, x, self.c)
         q, k, v  = self.c_attn(x_hyperbolic).split(self.n_embd, dim=2)
         k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
@@ -113,11 +123,11 @@ class HyperbolicCausalSelfAttention(nn.Module):
         y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
 
         if self.map_back_after_attention:
-            y = expmap(node_avg, y, self.c)
+            y = expmap(reference_point, y, self.c)
 
         # output projection
         y = self.resid_dropout(self.c_proj(y))
-        return y
+        return y, reference_point
 
 class MLP(nn.Module):
 
@@ -130,14 +140,15 @@ class MLP(nn.Module):
         self.map_back_after_attention = config.map_back_after_attention
         self.c = curvature
         
-    def forward(self, x):
+    def forward(self, x, reference_point=None):
         x = self.c_fc(x)
         x = self.gelu(x)
         x = self.c_proj(x)
         x = self.dropout(x)
         if not self.map_back_after_attention:
-            node_avg = torch.mean(x, dim=1,keepdim=True)
-            x = expmap(node_avg, x, self.c)
+            if reference_point is None:
+                reference_point = calculate_reference_point(x)
+            x = expmap(reference_point, x, self.c)
         return x
 
 class Block(nn.Module):
@@ -172,8 +183,12 @@ class Block(nn.Module):
 
 
     def forward(self, x):
-        x = x + self.attn(self.ln_1(x))
-        x = x + self.mlp(self.ln_2(x))
+        # Run attention and get both output and reference point
+        attn_output, reference_point = self.attn(self.ln_1(x))
+        x = x + attn_output
+        
+        # Pass the reference point to MLP
+        x = x + self.mlp(self.ln_2(x), reference_point)
         return x
 
 @dataclass
