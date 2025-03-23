@@ -48,9 +48,10 @@ def logmap(x, u, c):
     scaling_factor_x = scaling_factor(x, c)
     mob_addition = mobius_addition(-x, u, c)
     addition_norm = torch.norm(mob_addition, dim=-1, keepdim=True)
-    constant_factor = 2/(scaling_factor_x*c**0.5)
-    direction_factor = mob_addition/addition_norm
-    return constant_factor * torch.arctanh((c*addition_norm)**0.5) * direction_factor
+    constant_factor = 2 / (scaling_factor_x * c**0.5)
+    direction_factor = mob_addition / addition_norm
+    arg = torch.clamp((c * addition_norm) ** 0.5, min=-0.999, max=0.999)  # Single-line fix
+    return constant_factor * torch.arctanh(arg) * direction_factor
 
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
@@ -92,8 +93,13 @@ class HyperbolicCausalSelfAttention(nn.Module):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
-        node_avg = torch.cumsum(x, dim=1) / torch.arange(1, T+1, device=x.device, dtype=x.dtype).view(1, T, 1)
-        x_hyperbolic = logmap(node_avg, x, self.c)
+        ref_point = torch.zeros_like(x[:, :1, :])
+        if T > 1:
+            ref_point = x[:, :-1, :]
+            ref_point = F.pad(ref_point, (0, 0, 1, 0), mode='constant', value=0)
+
+        x_hyperbolic = logmap(ref_point, x, self.c)
+
         q, k, v  = self.c_attn(x_hyperbolic).split(self.n_embd, dim=2)
         k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
@@ -118,6 +124,8 @@ class HyperbolicCausalSelfAttention(nn.Module):
         # output projection
         y = self.resid_dropout(self.c_proj(y))
         return y
+
+
 
 class MLP(nn.Module):
 
