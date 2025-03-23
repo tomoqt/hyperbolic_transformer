@@ -48,9 +48,10 @@ def logmap(x, u, c):
     scaling_factor_x = scaling_factor(x, c)
     mob_addition = mobius_addition(-x, u, c)
     addition_norm = torch.norm(mob_addition, dim=-1, keepdim=True)
-    constant_factor = 2/(scaling_factor_x*c**0.5)
-    direction_factor = mob_addition/addition_norm
-    return constant_factor * torch.arctanh((c*addition_norm)**0.5) * direction_factor
+    constant_factor = 2 / (scaling_factor_x * c**0.5)
+    direction_factor = mob_addition / addition_norm
+    arg = torch.clamp((c * addition_norm) ** 0.5, min=-0.999, max=0.999)  # Single-line fix
+    return constant_factor * torch.arctanh(arg) * direction_factor
 
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
