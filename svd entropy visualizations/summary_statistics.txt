@@ -1,0 +1,62 @@
+Summary Statistics:
+
+Standard Model:
+  Overall Average SVD Entropy: 5.7191 (log: 0.7573)
+  Layer Type Average SVD Entropy:
+    attention_proj: 5.6611 (log: 0.7529) from 6 parameters
+    attention_qkv: 5.8298 (log: 0.7657) from 6 parameters
+    embedding: 4.7520 (log: 0.6769) from 2 parameters
+    mlp_fc: 5.8939 (log: 0.7704) from 6 parameters
+    mlp_proj: 5.8138 (log: 0.7645) from 6 parameters
+
+  Layer-wise Average SVD Entropy:
+    Layer 0: 5.7677 (log: 0.7610)
+    Layer 1: 5.7919 (log: 0.7628)
+    Layer 2: 5.8082 (log: 0.7640)
+    Layer 3: 5.8092 (log: 0.7641)
+    Layer 4: 5.8084 (log: 0.7641)
+    Layer 5: 5.8124 (log: 0.7644)
+
+Hyperbolic Model:
+  Overall Average SVD Entropy: 5.7798 (log: 0.7619)
+  Layer Type Average SVD Entropy:
+    attention_proj: 5.7245 (log: 0.7577) from 6 parameters
+    attention_qkv: 5.9029 (log: 0.7711) from 6 parameters
+    embedding: 4.7727 (log: 0.6788) from 2 parameters
+    mlp_fc: 5.9156 (log: 0.7720) from 6 parameters
+    mlp_proj: 5.9120 (log: 0.7717) from 6 parameters
+
+  Layer-wise Average SVD Entropy:
+    Layer 0: 5.8644 (log: 0.7682)
+    Layer 1: 5.8652 (log: 0.7683)
+    Layer 2: 5.8656 (log: 0.7683)
+    Layer 3: 5.8650 (log: 0.7683)
+    Layer 4: 5.8650 (log: 0.7683)
+    Layer 5: 5.8572 (log: 0.7677)
+
+Comparison Statistics:
+  Overall Entropy Ratio (Hyperbolic/Standard): 1.0106
+  Log10 Difference (Hyperbolic - Standard): 0.0046
+  Percent Difference: 1.06%
+
+
+LOG SCALE SUMMARY:
+==================
+
+Standard Model (Log10 Values):
+  Overall Average SVD Entropy (log10): 0.7573
+  Layer Types by Order of Magnitude (ascending):
+    embedding: 0.6769 (from 2 parameters)
+    attention_proj: 0.7529 (from 6 parameters)
+    mlp_proj: 0.7645 (from 6 parameters)
+    attention_qkv: 0.7657 (from 6 parameters)
+    mlp_fc: 0.7704 (from 6 parameters)
+
+Hyperbolic Model (Log10 Values):
+  Overall Average SVD Entropy (log10): 0.7619
+  Layer Types by Order of Magnitude (ascending):
+    embedding: 0.6788 (from 2 parameters)
+    attention_proj: 0.7577 (from 6 parameters)
+    attention_qkv: 0.7711 (from 6 parameters)
+    mlp_proj: 0.7717 (from 6 parameters)
+    mlp_fc: 0.7720 (from 6 parameters)
