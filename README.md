@@ -52,3 +52,6 @@ Both datasets are prepared to be used with the training scripts. For mixed curva
 
 - Original code based on [nanoGPT](https://github.com/karpathy/nanoGPT) by Andrej Karpathy
 - Geometric optimization insights from [Muon](https://github.com/KellerJordan/Muon) by Keller Jordan et al.
+
+
+

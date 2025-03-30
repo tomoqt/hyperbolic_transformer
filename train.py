@@ -472,8 +472,8 @@ while True:
             }
             
             # Add curvature values to the log if they exist
-            if hasattr(model.config, 'curvature_mode') and model.config.curvature_mode in ['parametric', 'random']:
-                for i, block in enumerate(model.transformer.h):
+            if hasattr(raw_model.config, 'curvature_mode') and raw_model.config.curvature_mode in ['parametric', 'random']:
+                for i, block in enumerate(raw_model.transformer.h):
                     if hasattr(block, 'c') and isinstance(block.c, nn.Parameter):
                         c_value = block.c.detach().cpu().item()
                         log_dict[f'curvature/block_{i}'] = c_value
