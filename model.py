@@ -9,15 +9,22 @@ https://github.com/huggingface/transformers/blob/main/src/transformers/models/gp
 
 import math
 import inspect
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
 # Hyperbolic geometry utility functions
+def clamp_curvature(c):
+    if isinstance(c, torch.Tensor):
+        return torch.clamp(c, min=1e-4, max=1.0)
+    else:
+        return max(1e-4, min(c, 1.0))
+
 def mobius_addition(x, y, c):
     """Mobius addition in hyperbolic space with curvature c"""
+    c = clamp_curvature(c)
     # Compute norms
     x_norm = torch.norm(x, dim=-1, keepdim=True)
     y_norm = torch.norm(y, dim=-1, keepdim=True)
@@ -33,11 +40,13 @@ def mobius_addition(x, y, c):
 
 def scaling_factor(x, c):
     """Compute scaling factor for hyperbolic space with curvature c"""
+    c = clamp_curvature(c)
     x_norm = torch.norm(x, dim=-1, keepdim=True)
     return 2/(1+c*x_norm**2)
 
 def expmap(x, v, c):
     """Exponential map from tangent space to hyperbolic space with curvature c"""
+    c = clamp_curvature(c)
     scaling_factor_x = scaling_factor(x, c)
     v_norm = torch.norm(v, dim=-1, keepdim=True)
     second_term = (1/c**0.5)*torch.tanh((c*scaling_factor_x*v_norm**2/2)**0.5)*v/v_norm
@@ -45,6 +54,7 @@ def expmap(x, v, c):
 
 def logmap(x, u, c):
     """Logarithmic map from hyperbolic space to tangent space with curvature c"""
+    c = clamp_curvature(c)
     scaling_factor_x = scaling_factor(x, c)
     mob_addition = mobius_addition(-x, u, c)
     addition_norm = torch.norm(mob_addition, dim=-1, keepdim=True)
@@ -53,7 +63,7 @@ def logmap(x, u, c):
     arg = torch.clamp((c * addition_norm) ** 0.5, min=-0.999, max=0.999)  # Single-line fix
     return constant_factor * torch.arctanh(arg) * direction_factor
 
-def calculate_reference_point(x):
+def calculate_reference_point(x, per_head_curvature=False):
     """Calculate reference point for hyperbolic operations"""
     B, T, C = x.size()
     ref_point = torch.zeros_like(x[:, :1, :])
@@ -88,6 +98,7 @@ class HyperbolicCausalSelfAttention(nn.Module):
         self.n_head = config.n_head
         self.n_embd = config.n_embd
         self.dropout = config.dropout
+        self.per_head_curvature = config.per_head_curvature
         self.c = curvature
         self.map_back_after_attention = config.map_back_after_attention
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
@@ -102,9 +113,11 @@ class HyperbolicCausalSelfAttention(nn.Module):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
+
+
         reference_point = calculate_reference_point(x)
-        x_hyperbolic = logmap(reference_point, x, self.c)
-        q, k, v  = self.c_attn(x_hyperbolic).split(self.n_embd, dim=2)
+        x = logmap(reference_point, x, self.c)
+        q, k, v  = self.c_attn(x).split(self.n_embd, dim=2)
         k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
@@ -170,8 +183,12 @@ class Block(nn.Module):
             self.c = nn.Parameter(torch.tensor(curvature_init).view(1))
             self.c.requires_grad = True
         elif config.curvature_mode == 'random': #defaulting to random init
-            self.c = nn.Parameter(torch.rand(1))  # Single random value for the entire block
-            self.c.requires_grad = True
+            if not config.per_head_curvature:
+                self.c = nn.Parameter(torch.rand(1))  # Single random value for the entire block
+                self.c.requires_grad = True
+            else:
+                self.c = nn.Parameter(torch.rand(config.n_head).repeat_interleave(config.n_embd//config.n_head))
+        
         else:
             raise ValueError(f"Invalid curvature mode: {config.curvature_mode}")
 
@@ -202,8 +219,13 @@ class GPTConfig:
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
     curvature_mode: str = 'random' # 'fixed', 'parametric', or any other value for random init
     curvature: float = 1.0 # Fixed curvature value when curvature_mode is 'fixed'
-    curvature_initialization: list = None # List of initial curvature values for parametric mode (one per layer when provided)
+    curvature_initialization: list = field(default_factory=list) # List of initial curvature values for parametric mode (one per layer when provided)
     map_back_after_attention: bool = True # whether to map back to hyperbolic space after attention or after the MLP
+    per_head_curvature: bool = True # whether to use a different curvature for each head
+    def __post_init__(self):
+        # Initialize curvature_initialization if it's empty
+        if not self.curvature_initialization:
+            self.curvature_initialization = [1.0-1.0e-3] + [1.0e-3] * (self.n_layer - 1)
     
     def set_layer_curvatures(self, curvature_values):
         """
@@ -220,6 +242,7 @@ class GPTConfig:
             self.curvature_initialization = [float(curvature_values)] * self.n_layer
         else:
             # Expect a list with length equal to n_layer
+        
             assert len(curvature_values) == self.n_layer, f"Expected {self.n_layer} curvature values, got {len(curvature_values)}"
             self.curvature_initialization = list(curvature_values)
 
@@ -235,7 +258,7 @@ class GPT(nn.Module):
             wte = nn.Embedding(config.vocab_size, config.n_embd),
             wpe = nn.Embedding(config.block_size, config.n_embd),
             drop = nn.Dropout(config.dropout),
-            h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
+            h = nn.ModuleList([self._create_block(config, i) for i in range(config.n_layer)]),
             ln_f = LayerNorm(config.n_embd, bias=config.bias),
         ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)

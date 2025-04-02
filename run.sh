@@ -1,0 +1,1 @@
+torchrun --standalone --nproc_per_node=1  train.py config/train_shakespeare_char.py --use_baseline_model=True
