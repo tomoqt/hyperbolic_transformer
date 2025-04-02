@@ -189,13 +189,16 @@ compile = True # use PyTorch 2.0 to compile the model to be faster
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
 exec(open('configurator.py').read()) # overrides from command line or config file
 
+# Set output directory based on model type
+out_dir = 'out_baseline' if use_baseline_model else 'out_hyperbolic'
+
 config = {k: globals()[k] for k in config_keys} # will be useful for logging
 # -----------------------------------------------------------------------------
 
 # Import appropriate model based on configuration
 if use_baseline_model:
     print("Using baseline model from model_baseline.py")
-    from model_baseline import GPTConfig, GPT
+    from model_old import GPTConfig, GPT
 else:
     print("Using standard model from model.py")
     from model import GPTConfig, GPT
@@ -225,6 +228,7 @@ print(f"tokens per iteration will be: {tokens_per_iter:,}")
 
 if master_process:
     os.makedirs(out_dir, exist_ok=True)
+    print(f"Checkpoint directory: {out_dir}")
 torch.manual_seed(1337 + seed_offset)
 torch.backends.cuda.matmul.allow_tf32 = True # allow tf32 on matmul
 torch.backends.cudnn.allow_tf32 = True # allow tf32 on cudnn
@@ -473,18 +477,46 @@ while True:
             
             # Add curvature values to the log if they exist
             if hasattr(raw_model.config, 'curvature_mode') and raw_model.config.curvature_mode in ['parametric', 'random']:
+                all_curvature_values = []
                 for i, block in enumerate(raw_model.transformer.h):
                     if hasattr(block, 'c') and isinstance(block.c, nn.Parameter):
-                        c_value = block.c.detach().cpu().item()
-                        log_dict[f'curvature/block_{i}'] = c_value
+                        # Check if using per-head curvature
+                        if block.c.dim() > 0 and block.c.numel() > 1:
+                            # Log per-head curvature values
+                            if block.c.numel() == raw_model.config.n_head:
+                                # Original per-head version (one value per head)
+                                for h, c_val in enumerate(block.c.detach().cpu()):
+                                    log_dict[f'curvature/block_{i}/head_{h}'] = c_val.item()
+                                    all_curvature_values.append(c_val.item())
+                                # Also log block average
+                                block_avg = block.c.detach().mean().cpu().item()
+                                log_dict[f'curvature/block_{i}'] = block_avg
+                            else:
+                                # Expanded version where each head's value is repeated
+                                # Sample just the first value for each head to avoid too many logs
+                                head_size = raw_model.config.n_embd // raw_model.config.n_head
+                                for h in range(raw_model.config.n_head):
+                                    head_val = block.c.detach().cpu()[h * head_size].item()
+                                    log_dict[f'curvature/block_{i}/head_{h}'] = head_val
+                                    all_curvature_values.append(head_val)
+                                # Also log block average
+                                block_avg = block.c.detach().mean().cpu().item()
+                                log_dict[f'curvature/block_{i}'] = block_avg
+                        else:
+                            # Original single curvature per block
+                            c_value = block.c.detach().cpu().item()
+                            log_dict[f'curvature/block_{i}'] = c_value
+                            all_curvature_values.append(c_value)
                 
                 # Add curvature statistics
-                curvature_values = [log_dict[k] for k in log_dict.keys() if k.startswith('curvature/block_')]
-                if curvature_values:
-                    log_dict['curvature/avg'] = sum(curvature_values) / len(curvature_values)
-                    log_dict['curvature/min'] = min(curvature_values)
-                    log_dict['curvature/max'] = max(curvature_values)
+                if all_curvature_values:
+                    log_dict['curvature/avg'] = sum(all_curvature_values) / len(all_curvature_values)
+                    log_dict['curvature/min'] = min(all_curvature_values)
+                    log_dict['curvature/max'] = max(all_curvature_values)
                     
+                    # Add a flag to indicate per-head curvature is being used
+                    log_dict['curvature/per_head'] = hasattr(raw_model.config, 'per_head_curvature') and raw_model.config.per_head_curvature
+            
             wandb.log(log_dict)
         if losses['val'] < best_val_loss or always_save_checkpoint:
             best_val_loss = losses['val']
@@ -498,7 +530,8 @@ while True:
                     'best_val_loss': best_val_loss,
                     'config': config,
                 }
-                print(f"saving checkpoint to {out_dir}")
+                model_type = "baseline" if use_baseline_model else "hyperbolic"
+                print(f"saving {model_type} model checkpoint to {out_dir}")
                 torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))
     if iter_num == 0 and eval_only:
         break
