@@ -182,6 +182,10 @@ class Block(nn.Module):
                 curvature_init = config.curvature_initialization[block_idx]
             self.c = nn.Parameter(torch.tensor(curvature_init).view(1))
             self.c.requires_grad = True
+        elif config.curvature_mode == 'tied':
+            # Use a temporary value that will be replaced with shared parameter
+            # This ensures dependent modules aren't initialized with None
+            self.c = 1.0
         elif config.curvature_mode == 'random': #defaulting to random init
             if not config.per_head_curvature:
                 self.c = nn.Parameter(torch.rand(1))  # Single random value for the entire block
@@ -217,8 +221,8 @@ class GPTConfig:
     n_embd: int = 768
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
-    curvature_mode: str = 'random' # 'fixed', 'parametric', or any other value for random init
-    curvature: float = 1.0 # Fixed curvature value when curvature_mode is 'fixed'
+    curvature_mode: str = 'tied' # 'fixed', 'parametric', 'tied', or any other value for random init
+    curvature: float = 0.0 # Fixed curvature value when curvature_mode is 'fixed'
     curvature_initialization: list = field(default_factory=list) # List of initial curvature values for parametric mode (one per layer when provided)
     map_back_after_attention: bool = True # whether to map back to hyperbolic space after attention or after the MLP
     per_head_curvature: bool = True # whether to use a different curvature for each head
@@ -254,6 +258,16 @@ class GPT(nn.Module):
         assert config.block_size is not None
         self.config = config
 
+        # Create shared curvature parameter if using tied mode
+        self.shared_curvature = None
+        if config.curvature_mode == 'tied':
+            if config.per_head_curvature:
+                # Create one parameter per head, shared across all blocks
+                self.shared_curvature = nn.Parameter(torch.rand(config.n_head).repeat_interleave(config.n_embd//config.n_head))
+            else:
+                # Create a single parameter shared across all blocks
+                self.shared_curvature = nn.Parameter(torch.tensor(1.0).view(1))
+
         self.transformer = nn.ModuleDict(dict(
             wte = nn.Embedding(config.vocab_size, config.n_embd),
             wpe = nn.Embedding(config.block_size, config.n_embd),
@@ -283,7 +297,19 @@ class GPT(nn.Module):
         import copy
         block_config = copy.copy(config)
         block_config._block_idx = idx
-        return Block(block_config)
+        
+        # Create the block
+        block = Block(block_config)
+        
+        # Pass the shared curvature parameter if using tied mode
+        if config.curvature_mode == 'tied' and self.shared_curvature is not None:
+            # For tied mode, we need to update both the block's curvature parameter
+            # and the curvature parameters in the attention and MLP modules
+            block.c = self.shared_curvature
+            block.attn.c = self.shared_curvature
+            block.mlp.c = self.shared_curvature
+            
+        return block
 
     def get_num_params(self, non_embedding=True):
         """
