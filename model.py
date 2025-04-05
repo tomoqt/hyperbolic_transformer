@@ -188,20 +188,10 @@ class Block(nn.Module):
             self.c = 1.0
         elif config.curvature_mode == 'random': #defaulting to random init
             if not config.per_head_curvature:
-                if config.full_curvature:
-                    # Initialize from -1 to 1
-                    self.c = nn.Parameter(2 * torch.rand(1) - 1)  # rand gives [0,1), so 2*rand-1 gives [-1,1)
-                else:
-                    # Initialize from 0 to 1 (original behavior)
-                    self.c = nn.Parameter(torch.rand(1))
+                self.c = nn.Parameter(torch.rand(1))  # Single random value for the entire block
                 self.c.requires_grad = True
             else:
-                if config.full_curvature:
-                    # Initialize from -1 to 1 for each head
-                    self.c = nn.Parameter((2 * torch.rand(config.n_head) - 1).repeat_interleave(config.n_embd//config.n_head))
-                else:
-                    # Initialize from 0 to 1 for each head (original behavior)
-                    self.c = nn.Parameter(torch.rand(config.n_head).repeat_interleave(config.n_embd//config.n_head))
+                self.c = nn.Parameter(torch.rand(config.n_head).repeat_interleave(config.n_embd//config.n_head))
         
         else:
             raise ValueError(f"Invalid curvature mode: {config.curvature_mode}")
@@ -236,7 +226,6 @@ class GPTConfig:
     curvature_initialization: list = field(default_factory=list) # List of initial curvature values for parametric mode (one per layer when provided)
     map_back_after_attention: bool = True # whether to map back to hyperbolic space after attention or after the MLP
     per_head_curvature: bool = True # whether to use a different curvature for each head
-    full_curvature: bool = True # whether to initialize curvature from -1 to 1 (True) or from 0 to 1 (False)
     def __post_init__(self):
         # Initialize curvature_initialization if it's empty
         if not self.curvature_initialization:
@@ -274,20 +263,10 @@ class GPT(nn.Module):
         if config.curvature_mode == 'tied':
             if config.per_head_curvature:
                 # Create one parameter per head, shared across all blocks
-                if config.full_curvature:
-                    # Initialize from -1 to 1
-                    self.shared_curvature = nn.Parameter((2 * torch.rand(config.n_head) - 1).repeat_interleave(config.n_embd//config.n_head))
-                else:
-                    # Initialize from 0 to 1 (original behavior)
-                    self.shared_curvature = nn.Parameter(torch.rand(config.n_head).repeat_interleave(config.n_embd//config.n_head))
+                self.shared_curvature = nn.Parameter(torch.rand(config.n_head).repeat_interleave(config.n_embd//config.n_head))
             else:
                 # Create a single parameter shared across all blocks
-                if config.full_curvature:
-                    # Initialize from -1 to 1
-                    self.shared_curvature = nn.Parameter(2 * torch.rand(1) - 1)
-                else:
-                    # Initialize from 0 to 1 (original behavior)
-                    self.shared_curvature = nn.Parameter(torch.tensor(1.0).view(1))
+                self.shared_curvature = nn.Parameter(torch.tensor(1.0).view(1))
 
         self.transformer = nn.ModuleDict(dict(
             wte = nn.Embedding(config.vocab_size, config.n_embd),
