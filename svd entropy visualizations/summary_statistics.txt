@@ -18,26 +18,26 @@ Standard Model:
     Layer 5: 5.8124 (log: 0.7644)
 
 Hyperbolic Model:
-  Overall Average SVD Entropy: 5.7798 (log: 0.7619)
+  Overall Average SVD Entropy: 5.7703 (log: 0.7612)
   Layer Type Average SVD Entropy:
-    attention_proj: 5.7245 (log: 0.7577) from 6 parameters
-    attention_qkv: 5.9029 (log: 0.7711) from 6 parameters
-    embedding: 4.7727 (log: 0.6788) from 2 parameters
-    mlp_fc: 5.9156 (log: 0.7720) from 6 parameters
-    mlp_proj: 5.9120 (log: 0.7717) from 6 parameters
+    attention_proj: 5.6918 (log: 0.7553) from 6 parameters
+    attention_qkv: 5.8963 (log: 0.7706) from 6 parameters
+    embedding: 4.7815 (log: 0.6796) from 2 parameters
+    mlp_fc: 5.9165 (log: 0.7721) from 6 parameters
+    mlp_proj: 5.9061 (log: 0.7713) from 6 parameters
 
   Layer-wise Average SVD Entropy:
-    Layer 0: 5.8644 (log: 0.7682)
-    Layer 1: 5.8652 (log: 0.7683)
-    Layer 2: 5.8656 (log: 0.7683)
-    Layer 3: 5.8650 (log: 0.7683)
-    Layer 4: 5.8650 (log: 0.7683)
-    Layer 5: 5.8572 (log: 0.7677)
+    Layer 0: 5.8468 (log: 0.7669)
+    Layer 1: 5.8398 (log: 0.7664)
+    Layer 2: 5.8538 (log: 0.7674)
+    Layer 3: 5.8593 (log: 0.7678)
+    Layer 4: 5.8622 (log: 0.7681)
+    Layer 5: 5.8544 (log: 0.7675)
 
 Comparison Statistics:
-  Overall Entropy Ratio (Hyperbolic/Standard): 1.0106
-  Log10 Difference (Hyperbolic - Standard): 0.0046
-  Percent Difference: 1.06%
+  Overall Entropy Ratio (Hyperbolic/Standard): 1.0090
+  Log10 Difference (Hyperbolic - Standard): 0.0039
+  Percent Difference: 0.90%
 
 
 LOG SCALE SUMMARY:
@@ -53,10 +53,10 @@ Standard Model (Log10 Values):
     mlp_fc: 0.7704 (from 6 parameters)
 
 Hyperbolic Model (Log10 Values):
-  Overall Average SVD Entropy (log10): 0.7619
+  Overall Average SVD Entropy (log10): 0.7612
   Layer Types by Order of Magnitude (ascending):
-    embedding: 0.6788 (from 2 parameters)
-    attention_proj: 0.7577 (from 6 parameters)
-    attention_qkv: 0.7711 (from 6 parameters)
-    mlp_proj: 0.7717 (from 6 parameters)
-    mlp_fc: 0.7720 (from 6 parameters)
+    embedding: 0.6796 (from 2 parameters)
+    attention_proj: 0.7553 (from 6 parameters)
+    attention_qkv: 0.7706 (from 6 parameters)
+    mlp_proj: 0.7713 (from 6 parameters)
+    mlp_fc: 0.7721 (from 6 parameters)
