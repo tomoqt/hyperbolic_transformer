@@ -1,62 +1,62 @@
 Summary Statistics:
 
 Standard Model:
-  Overall Average SVD Entropy: 5.7191 (log: 0.7573)
+  Overall Average SVD Entropy: 6.4471 (log: 0.8094)
   Layer Type Average SVD Entropy:
-    attention_proj: 5.6611 (log: 0.7529) from 6 parameters
-    attention_qkv: 5.8298 (log: 0.7657) from 6 parameters
-    embedding: 4.7520 (log: 0.6769) from 2 parameters
-    mlp_fc: 5.8939 (log: 0.7704) from 6 parameters
-    mlp_proj: 5.8138 (log: 0.7645) from 6 parameters
+    attention_proj: 6.2236 (log: 0.7940) from 6 parameters
+    attention_qkv: 6.5609 (log: 0.8170) from 6 parameters
+    embedding: 6.2371 (log: 0.7950) from 2 parameters
+    mlp_fc: 6.5487 (log: 0.8162) from 6 parameters
+    mlp_proj: 6.5253 (log: 0.8146) from 6 parameters
 
   Layer-wise Average SVD Entropy:
-    Layer 0: 5.7677 (log: 0.7610)
-    Layer 1: 5.7919 (log: 0.7628)
-    Layer 2: 5.8082 (log: 0.7640)
-    Layer 3: 5.8092 (log: 0.7641)
-    Layer 4: 5.8084 (log: 0.7641)
-    Layer 5: 5.8124 (log: 0.7644)
+    Layer 0: 6.5092 (log: 0.8135)
+    Layer 1: 6.4670 (log: 0.8107)
+    Layer 2: 6.4275 (log: 0.8080)
+    Layer 3: 6.4330 (log: 0.8084)
+    Layer 4: 6.4785 (log: 0.8115)
+    Layer 5: 6.4727 (log: 0.8111)
 
 Hyperbolic Model:
-  Overall Average SVD Entropy: 5.7703 (log: 0.7612)
+  Overall Average SVD Entropy: 6.4478 (log: 0.8094)
   Layer Type Average SVD Entropy:
-    attention_proj: 5.6918 (log: 0.7553) from 6 parameters
-    attention_qkv: 5.8963 (log: 0.7706) from 6 parameters
-    embedding: 4.7815 (log: 0.6796) from 2 parameters
-    mlp_fc: 5.9165 (log: 0.7721) from 6 parameters
-    mlp_proj: 5.9061 (log: 0.7713) from 6 parameters
+    attention_proj: 6.1823 (log: 0.7912) from 6 parameters
+    attention_qkv: 6.5571 (log: 0.8167) from 6 parameters
+    embedding: 6.2349 (log: 0.7948) from 2 parameters
+    mlp_fc: 6.5633 (log: 0.8171) from 6 parameters
+    mlp_proj: 6.5595 (log: 0.8169) from 6 parameters
 
   Layer-wise Average SVD Entropy:
-    Layer 0: 5.8468 (log: 0.7669)
-    Layer 1: 5.8398 (log: 0.7664)
-    Layer 2: 5.8538 (log: 0.7674)
-    Layer 3: 5.8593 (log: 0.7678)
-    Layer 4: 5.8622 (log: 0.7681)
-    Layer 5: 5.8544 (log: 0.7675)
+    Layer 0: 6.4808 (log: 0.8116)
+    Layer 1: 6.4243 (log: 0.8078)
+    Layer 2: 6.4640 (log: 0.8105)
+    Layer 3: 6.4734 (log: 0.8111)
+    Layer 4: 6.4756 (log: 0.8113)
+    Layer 5: 6.4751 (log: 0.8112)
 
 Comparison Statistics:
-  Overall Entropy Ratio (Hyperbolic/Standard): 1.0090
-  Log10 Difference (Hyperbolic - Standard): 0.0039
-  Percent Difference: 0.90%
+  Overall Entropy Ratio (Hyperbolic/Standard): 1.0001
+  Log10 Difference (Hyperbolic - Standard): 0.0000
+  Percent Difference: 0.01%
 
 
 LOG SCALE SUMMARY:
 ==================
 
 Standard Model (Log10 Values):
-  Overall Average SVD Entropy (log10): 0.7573
+  Overall Average SVD Entropy (log10): 0.8094
   Layer Types by Order of Magnitude (ascending):
-    embedding: 0.6769 (from 2 parameters)
-    attention_proj: 0.7529 (from 6 parameters)
-    mlp_proj: 0.7645 (from 6 parameters)
-    attention_qkv: 0.7657 (from 6 parameters)
-    mlp_fc: 0.7704 (from 6 parameters)
+    attention_proj: 0.7940 (from 6 parameters)
+    embedding: 0.7950 (from 2 parameters)
+    mlp_proj: 0.8146 (from 6 parameters)
+    mlp_fc: 0.8162 (from 6 parameters)
+    attention_qkv: 0.8170 (from 6 parameters)
 
 Hyperbolic Model (Log10 Values):
-  Overall Average SVD Entropy (log10): 0.7612
+  Overall Average SVD Entropy (log10): 0.8094
   Layer Types by Order of Magnitude (ascending):
-    embedding: 0.6796 (from 2 parameters)
-    attention_proj: 0.7553 (from 6 parameters)
-    attention_qkv: 0.7706 (from 6 parameters)
-    mlp_proj: 0.7713 (from 6 parameters)
-    mlp_fc: 0.7721 (from 6 parameters)
+    attention_proj: 0.7912 (from 6 parameters)
+    embedding: 0.7948 (from 2 parameters)
+    attention_qkv: 0.8167 (from 6 parameters)
+    mlp_proj: 0.8169 (from 6 parameters)
+    mlp_fc: 0.8171 (from 6 parameters)

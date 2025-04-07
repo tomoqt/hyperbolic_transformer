@@ -212,8 +212,8 @@ def visualize_svd_entropy():
     
     # Model paths and their types
     model_configs = {
-        'Standard': {'path': 'out-shakespeare-char', 'is_hyperbolic': False},
-        'Hyperbolic': {'path': 'Hyperbolic-out-shakespeare-char', 'is_hyperbolic': True}
+        'Standard': {'path': 'out_baseline_large', 'is_hyperbolic': False},
+        'Hyperbolic': {'path': 'out_hyperbolic_large', 'is_hyperbolic': True}
     }
     
     models = {}

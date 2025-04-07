@@ -476,7 +476,7 @@ while True:
             }
             
             # Add curvature values to the log if they exist
-            if hasattr(raw_model.config, 'curvature_mode') and raw_model.config.curvature_mode in ['parametric', 'random']:
+            if hasattr(raw_model.config, 'curvature_mode') and raw_model.config.curvature_mode in ['parametric', 'random','tied']:
                 all_curvature_values = []
                 for i, block in enumerate(raw_model.transformer.h):
                     if hasattr(block, 'c') and isinstance(block.c, nn.Parameter):
