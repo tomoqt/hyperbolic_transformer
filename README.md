@@ -2,13 +2,46 @@
 
 This project explores the geometric properties of representation spaces in transformer models, based on [nanoGPT](https://github.com/karpathy/nanoGPT) by Andrej Karpathy.
 
-## Motivation
+## (initial) Motivation
 
 Recent optimizers like [Muon](https://github.com/KellerJordan/Muon) achieve remarkable efficiency by orthogonalizing weights in neural networks. This orthogonalization creates more spread singular value decompositions (SVDs), which appears to improve network training dynamics.
 
 The success of these approaches suggests that representation spaces in transformers may be inherently anisotropic - not uniformly distributed in all directions. This anisotropy could be a fundamental property that limits the effectiveness of standard Euclidean optimization approaches.
 
 Research such as [Hyperbolic Geometric Latent Diffusion Model for Graph Generation](https://arxiv.org/abs/2405.03188) has demonstrated that using hyperbolic geometry can better capture the underlying structure of certain data types by accounting for this anisotropy.
+
+As the project carried on, we noticed a significant speedup of the model's training under some circumstances. Specifically, we ran experiments on gpt-2 variants. One on the shakespeare-char dataset (a small, test dataset tokenized char-whise) and on fineweb 10b, on an 85M model. 
+
+This project contains a few key architectural choices that seemingly allow this:
+- the model uses mobius addition to define sum in constant, curved space. Consequently, it introduces the exponential map and its inverse. The idea is to map representations to constantly curved space, while handling the regular neural network operations in the tangent space, which is locally euclidean. To do so, the model projects inputs back to tangent space right before attention, and projects embeddings back to curved space right after.
+- the curvature parameter, defining mobius addition and hence the rest of the geometry, is learnable. This is also explore in works like https://arxiv.org/pdf/2309.04082 , which makes this effectively a type of stereographic model, which (so far) only extends to negative curvature. We specifically make this parameter learnale block-wise and head-wise (but we can also tie this in both directions).
+- Importantly, the reference point to operate the mapping to the tangent space, for each token, is represented by the embedding of the previous token. This doeesn't break causality and empirically seems to work pretty well. Still have to figure out exacly why it works better than aggregating positions between tokens (as done for GNNs, could probably be extended to do some kind of aggregation over a past window of tokens tho.
+
+
+## Interesting results:
+
+speedup ![image](https://github.com/user-attachments/assets/c73726ab-0a09-4155-a2da-96097d56ce2f)
+
+Specifically, interestingly not projecting embedding table to curved space seems to work better (but we haven't tried all combinations on this, i have hundreds of different experiemnts but not ewll documented)
+We can log curvature, interestingly, block 0 usuall seems to have increasing curvature, while the rest decreases more or less sharply. 
+
+![image](https://github.com/user-attachments/assets/eb8636ee-a4f3-4c70-9825-5dfbe28e2067)
+
+Unfortunately i haven't really logged these properly, so i can't really systematically give you an idea about these. But cool to look at. 
+
+
+
+##Anisotpy vs isotropy
+
+Ok, elephant in the room. Effect seems to be there for at least the shakespeare-char. On fineweb, it looks more like a mixed bag. You can find some scripts in the repo with results about this. I attach some examples:
+
+shakespeare-char: 
+
+![image](https://github.com/user-attachments/assets/7a41ef52-fc9e-424f-b2b4-cbd08ea7700d)
+
+fineweb:
+
+![image](https://github.com/user-attachments/assets/39a5514b-a4ab-4fbe-8cdc-e197dd4ad0c8)
 
 ## Project Goal
 
@@ -34,13 +67,12 @@ This creates `train.bin` and `val.bin` files with character-level tokenization.
 
 ### OpenWebText Dataset (Full Scale Training)
 
-For more extensive training, prepare the OpenWebText dataset:
-
+Fineweb
 ```sh
-python data/openwebtext/prepare.py
+python data/fineweb/prepare.py
 ```
 
-This downloads and tokenizes the OpenWebText dataset, creating `train.bin` and `val.bin` files with GPT-2 BPE tokenization.
+This downloads and tokenizes the Fineweb10B dataset, creating `train.bin` and `val.bin` files with GPT-2 BPE tokenization.
 
 Both datasets are prepared to be used with the training scripts. For mixed curvature experiments, we can use these datasets to compare performance against baseline Euclidean transformer architectures.
 
