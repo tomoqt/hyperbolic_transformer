@@ -22,16 +22,17 @@ This project contains a few key architectural choices that seemingly allow this:
 
 speedup ![image](https://github.com/user-attachments/assets/c73726ab-0a09-4155-a2da-96097d56ce2f)
 
-Specifically, interestingly not projecting embedding table to curved space seems to work better (but we haven't tried all combinations on this, i have hundreds of different experiemnts but not ewll documented)
+
+Specifically, interestingly not projecting embedding table to curved space seems to work better (but we haven't tried all combinations on this, i have hundreds of different experiemnts but not well documented)
 We can log curvature, interestingly, block 0 usuall seems to have increasing curvature, while the rest decreases more or less sharply. 
+
 
 ![image](https://github.com/user-attachments/assets/eb8636ee-a4f3-4c70-9825-5dfbe28e2067)
 
 Unfortunately i haven't really logged these properly, so i can't really systematically give you an idea about these. But cool to look at. 
 
 
-
-##Anisotpy vs isotropy
+## Anisotpy vs isotropy
 
 Ok, elephant in the room. Effect seems to be there for at least the shakespeare-char. On fineweb, it looks more like a mixed bag. You can find some scripts in the repo with results about this. I attach some examples:
 
@@ -43,9 +44,23 @@ fineweb:
 
 ![image](https://github.com/user-attachments/assets/39a5514b-a4ab-4fbe-8cdc-e197dd4ad0c8)
 
+
+## Clamping and instability
+Since stereographic operations require heavy use of hyperbolic functions, the model is pretty unstable and prone to nans. We used quite a few clamps / epsilons in the code to relieve some of the division by small number problems. there probably is a better way to smoothen this out. 
+
 ## Project Goal
 
 This project aims to implement and test mixed curvature transformers - models that combine Euclidean, hyperbolic, and potentially other geometries to better match the intrinsic structure of the representation space. By adapting the geometric properties of the model to the natural geometry of the data, we hypothesize improved training efficiency and overall performance.
+
+## Current objectives and nice to haves:
+This work does go in the direction of learning *more* in the transformer architecture. I think this itself subtracts structure and may allow for more expressive models overall. In order to try and show this, i believe we should:
+- focus on doing a sweep to try and get a record in the speedrun. we had several attempts with prety bad failures, mainly due to gradients exploding, irrespective of lr (swept). so it's likely a very fragile setup for us.
+- focus a little on writing some of the underlying theory in a paper.
+- improve the architecture by adding:
+    - positive curvature
+    - more stable ops
+    - different reference points calculation methods
+    - possibily fully stereographic ops
 
 ## Implementation
 
