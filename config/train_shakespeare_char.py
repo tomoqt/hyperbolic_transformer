@@ -23,8 +23,8 @@ n_layer = 6
 n_head = 6
 n_embd = 384
 dropout = 0.0
-use_muon = False
-muon_lr = 1e-3
+use_muon = True
+muon_lr = 1e-2
 muon_momentum = 0.95
 muon_nesterov = True
 muon_ns_steps = 5
@@ -36,14 +36,7 @@ beta2 = 0.99 # make a bit bigger because number of tokens per iter is small
 
 warmup_iters = 100 # not super necessary potentially
 map_back_after_attention = False
+use_embedding_curvature = False
 # on macbook also add
 # device = 'cpu'  # run on cpu only
 # compile = False # do not torch compile the model
-curvature_mode 'tied' # 'fixed', 'parametric', 'tied', or any other value for random init
-curvature 0.0 # Fixed curvature value when curvature_mode is 'fixed'
-curvature_initialization: list = field(default_factory=list) # List of initial curvature values for parametric mode (one per layer when provided)
-map_back_after_attention: bool = False # whether to map back to hyperbolic space after attention or after the MLP
-per_head_curvature: bool = True # whether to use a different curvature for each head
-hyperbolic_embedding: bool = False # whether to use hyperbolic embeddings
-embedding_curvature_mode: str = 'random' # 'fixed', 'parametric', 'tied', or any other value for random init
-embedding_curvature: float = 1.0 # Fixed curvature value when embedding_curvature_mode is 'fixed'

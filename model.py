@@ -224,8 +224,9 @@ class GPTConfig:
     curvature_mode: str = 'tied' # 'fixed', 'parametric', 'tied', or any other value for random init
     curvature: float = 0.0 # Fixed curvature value when curvature_mode is 'fixed'
     curvature_initialization: list = field(default_factory=list) # List of initial curvature values for parametric mode (one per layer when provided)
-    map_back_after_attention: bool = True # whether to map back to hyperbolic space after attention or after the MLP
+    map_back_after_attention: bool = False # whether to map back to hyperbolic space after attention or after the MLP
     per_head_curvature: bool = True # whether to use a different curvature for each head
+    use_embedding_curvature: bool = True #whether to use a curvature element also for the embedding layer. 
     def __post_init__(self):
         # Initialize curvature_initialization if it's empty
         if not self.curvature_initialization:
@@ -267,7 +268,8 @@ class GPT(nn.Module):
             else:
                 # Create a single parameter shared across all blocks
                 self.shared_curvature = nn.Parameter(torch.tensor(1.0).view(1))
-
+        if config.use_embedding_curvature: 
+            self.embedding_curvature = nn.Parameter(torch.tensor(torch.rand(1)))
         self.transformer = nn.ModuleDict(dict(
             wte = nn.Embedding(config.vocab_size, config.n_embd),
             wpe = nn.Embedding(config.block_size, config.n_embd),
@@ -343,6 +345,9 @@ class GPT(nn.Module):
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
         x = self.transformer.drop(tok_emb + pos_emb)
+        if self.config.use_embedding_curvature:
+            reference_point = calculate_reference_point(x)
+            x = expmap(reference_point, x, self.embedding_curvature)
         for block in self.transformer.h:
             x = block(x)
         x = self.transformer.ln_f(x)

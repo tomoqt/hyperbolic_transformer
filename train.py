@@ -198,7 +198,7 @@ config = {k: globals()[k] for k in config_keys} # will be useful for logging
 # Import appropriate model based on configuration
 if use_baseline_model:
     print("Using baseline model from model_baseline.py")
-    from model_old import GPTConfig, GPT
+    from model_baseline import GPTConfig, GPT
 else:
     print("Using standard model from model.py")
     from model import GPTConfig, GPT
@@ -516,6 +516,16 @@ while True:
                     
                     # Add a flag to indicate per-head curvature is being used
                     log_dict['curvature/per_head'] = hasattr(raw_model.config, 'per_head_curvature') and raw_model.config.per_head_curvature
+                
+                # Add embedding curvature if it exists
+                if hasattr(raw_model, 'embedding_curvature') and isinstance(raw_model.embedding_curvature, nn.Parameter):
+                    embedding_curvature = raw_model.embedding_curvature.detach().cpu().item()
+                    log_dict['curvature/embedding'] = embedding_curvature
+                    all_curvature_values.append(embedding_curvature)
+                    # Update statistics to include embedding curvature
+                    log_dict['curvature/avg'] = sum(all_curvature_values) / len(all_curvature_values)
+                    log_dict['curvature/min'] = min(all_curvature_values)
+                    log_dict['curvature/max'] = max(all_curvature_values)
             
             wandb.log(log_dict)
         if losses['val'] < best_val_loss or always_save_checkpoint:
