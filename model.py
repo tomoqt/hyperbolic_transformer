@@ -100,7 +100,6 @@ class HyperbolicCausalSelfAttention(nn.Module):
         self.dropout = config.dropout
         self.per_head_curvature = config.per_head_curvature
         self.c = curvature
-        self.map_back_after_attention = config.map_back_after_attention
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
         if not self.flash:
@@ -113,10 +112,6 @@ class HyperbolicCausalSelfAttention(nn.Module):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
-
-
-        reference_point = calculate_reference_point(x)
-        x = logmap(reference_point, x, self.c)
         q, k, v  = self.c_attn(x).split(self.n_embd, dim=2)
         k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
@@ -135,12 +130,7 @@ class HyperbolicCausalSelfAttention(nn.Module):
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
 
-        if self.map_back_after_attention:
-            y = expmap(reference_point, y, self.c)
-
-        # output projection
-        y = self.resid_dropout(self.c_proj(y))
-        return y, reference_point
+        return y
 
 class MLP(nn.Module):
 
@@ -150,18 +140,13 @@ class MLP(nn.Module):
         self.gelu    = nn.GELU()
         self.c_proj  = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
-        self.map_back_after_attention = config.map_back_after_attention
         self.c = curvature
         
-    def forward(self, x, reference_point=None):
+    def forward(self, x):
         x = self.c_fc(x)
         x = self.gelu(x)
         x = self.c_proj(x)
         x = self.dropout(x)
-        if not self.map_back_after_attention:
-            if reference_point is None:
-                reference_point = calculate_reference_point(x)
-            x = expmap(reference_point, x, self.c)
         return x
 
 class Block(nn.Module):
@@ -204,12 +189,25 @@ class Block(nn.Module):
 
 
     def forward(self, x):
-        # Run attention and get both output and reference point
-        attn_output, reference_point = self.attn(self.ln_1(x))
-        x = x + attn_output
-        
-        # Pass the reference point to MLP
-        x = x + self.mlp(self.ln_2(x), reference_point)
+        # Input x is assumed to be in hyperbolic space (mapped in GPT.forward or previous block)
+        reference_point = calculate_reference_point(x)
+
+        # Map to tangent space at reference point before attention
+        x_tan = logmap(reference_point, x, self.c)
+        attn_update_tan = self.attn(self.ln_1(x_tan))
+        # Map attention update back to hyperbolic space relative to reference point
+        attn_update_hyp = expmap(reference_point, attn_update_tan, self.c)
+        # Add residual using Mobius addition
+        x = mobius_addition(x, attn_update_hyp, self.c)
+
+
+        x_tan_mlp = logmap(reference_point, x, self.c)
+        mlp_update_tan = self.mlp(self.ln_2(x_tan_mlp))
+        # Map MLP update back to hyperbolic space relative to its reference point
+        mlp_update_hyp = expmap(reference_point, mlp_update_tan, self.c)
+        # Add residual using Mobius addition
+        x = mobius_addition(x, mlp_update_hyp, self.c)
+
         return x
 
 @dataclass
@@ -224,7 +222,6 @@ class GPTConfig:
     curvature_mode: str = 'tied' # 'fixed', 'parametric', 'tied', or any other value for random init
     curvature: float = 0.0 # Fixed curvature value when curvature_mode is 'fixed'
     curvature_initialization: list = field(default_factory=list) # List of initial curvature values for parametric mode (one per layer when provided)
-    map_back_after_attention: bool = False # whether to map back to hyperbolic space after attention or after the MLP
     per_head_curvature: bool = True # whether to use a different curvature for each head
     use_embedding_curvature: bool = True #whether to use a curvature element also for the embedding layer. 
     def __post_init__(self):
