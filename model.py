@@ -122,7 +122,7 @@ class GPTConfig:
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
     # Looping configuration
-    max_loops: int = 1  # Maximum number of times to loop the middle layer(s)
+    max_loops: int = 500  # Maximum number of times to loop the middle layer(s)
     middle_layer_idx: int = -1 # Index of the layer to loop (-1 means no looping)
     loop_noise_scale: float = 0.0 # Scale for Gaussian noise added in the first loop iteration (0.0 means no noise)
     loops_representation: bool = False # Flag to track and return representations across loops
