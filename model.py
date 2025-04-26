@@ -9,68 +9,11 @@ https://github.com/huggingface/transformers/blob/main/src/transformers/models/gp
 
 import math
 import inspect
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-
-# Hyperbolic geometry utility functions
-def clamp_curvature(c):
-    if isinstance(c, torch.Tensor):
-        return torch.clamp(c, min=1e-4, max=1.0)
-    else:
-        return max(1e-4, min(c, 1.0))
-
-def mobius_addition(x, y, c):
-    """Mobius addition in hyperbolic space with curvature c"""
-    c = clamp_curvature(c)
-    # Compute norms
-    x_norm = torch.norm(x, dim=-1, keepdim=True)
-    y_norm = torch.norm(y, dim=-1, keepdim=True)
-    # Compute the inner product
-    inner_product = torch.sum(x * y, dim=-1, keepdim=True)
-    
-    # Compute numerator and denominator following the standard formula
-    numerator = (1 + 2*c * inner_product + c * (y_norm ** 2)) * x + \
-                (1 - c * (x_norm ** 2)) * y
-    denominator = 1 + 2*c * inner_product + (c ** 2) * (x_norm ** 2) * (y_norm ** 2)
-    
-    return numerator / denominator
-
-def scaling_factor(x, c):
-    """Compute scaling factor for hyperbolic space with curvature c"""
-    c = clamp_curvature(c)
-    x_norm = torch.norm(x, dim=-1, keepdim=True)
-    return 2/(1+c*x_norm**2)
-
-def expmap(x, v, c):
-    """Exponential map from tangent space to hyperbolic space with curvature c"""
-    c = clamp_curvature(c)
-    scaling_factor_x = scaling_factor(x, c)
-    v_norm = torch.norm(v, dim=-1, keepdim=True)
-    second_term = (1/c**0.5)*torch.tanh((c*scaling_factor_x*v_norm**2/2)**0.5)*v/v_norm
-    return mobius_addition(x, second_term, c)
-
-def logmap(x, u, c):
-    """Logarithmic map from hyperbolic space to tangent space with curvature c"""
-    c = clamp_curvature(c)
-    scaling_factor_x = scaling_factor(x, c)
-    mob_addition = mobius_addition(-x, u, c)
-    addition_norm = torch.norm(mob_addition, dim=-1, keepdim=True)
-    constant_factor = 2 / (scaling_factor_x * c**0.5)
-    direction_factor = mob_addition / addition_norm
-    arg = torch.clamp((c * addition_norm) ** 0.5, min=-0.999, max=0.999)  # Single-line fix
-    return constant_factor * torch.arctanh(arg) * direction_factor
-
-def calculate_reference_point(x, per_head_curvature=False):
-    """Calculate reference point for hyperbolic operations"""
-    B, T, C = x.size()
-    ref_point = torch.zeros_like(x[:, :1, :])
-    if T > 1:
-        ref_point = x[:, :-1, :]
-        ref_point = F.pad(ref_point, (0, 0, 1, 0), mode='constant', value=0)
-    return ref_point
 
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
@@ -83,9 +26,9 @@ class LayerNorm(nn.Module):
     def forward(self, input):
         return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
 
-class HyperbolicCausalSelfAttention(nn.Module):
+class CausalSelfAttention(nn.Module):
 
-    def __init__(self, config, curvature):
+    def __init__(self, config):
         super().__init__()
         assert config.n_embd % config.n_head == 0
         # key, query, value projections for all heads, but in a batch
@@ -98,9 +41,6 @@ class HyperbolicCausalSelfAttention(nn.Module):
         self.n_head = config.n_head
         self.n_embd = config.n_embd
         self.dropout = config.dropout
-        self.per_head_curvature = config.per_head_curvature
-        self.c = curvature
-        self.map_back_after_attention = config.map_back_after_attention
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
         if not self.flash:
@@ -113,10 +53,6 @@ class HyperbolicCausalSelfAttention(nn.Module):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
-
-
-        reference_point = calculate_reference_point(x)
-        x = logmap(reference_point, x, self.c)
         q, k, v  = self.c_attn(x).split(self.n_embd, dim=2)
         k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
@@ -135,81 +71,45 @@ class HyperbolicCausalSelfAttention(nn.Module):
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
 
-        if self.map_back_after_attention:
-            y = expmap(reference_point, y, self.c)
-
         # output projection
         y = self.resid_dropout(self.c_proj(y))
-        return y, reference_point
+        return y
 
 class MLP(nn.Module):
 
-    def __init__(self, config, curvature):
+    def __init__(self, config):
         super().__init__()
         self.c_fc    = nn.Linear(config.n_embd, 4 * config.n_embd, bias=config.bias)
         self.gelu    = nn.GELU()
         self.c_proj  = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
-        self.map_back_after_attention = config.map_back_after_attention
-        self.c = curvature
-        
-    def forward(self, x, reference_point=None):
+
+    def forward(self, x):
         x = self.c_fc(x)
         x = self.gelu(x)
         x = self.c_proj(x)
         x = self.dropout(x)
-        if not self.map_back_after_attention:
-            if reference_point is None:
-                reference_point = calculate_reference_point(x)
-            x = expmap(reference_point, x, self.c)
         return x
 
 class Block(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-
-        if config.curvature_mode == 'fixed':
-            self.c = config.curvature
-        elif config.curvature_mode == 'parametric':
-            if config.curvature_initialization is None:
-                # Default to 1.0 if no initialization is provided
-                curvature_init = 1.0
-            else:
-                # In this case, curvature_initialization should be a list with n_layer elements
-                # Each block will take its corresponding initialization value
-                block_idx = getattr(config, '_block_idx', 0)  # Get block index if it exists
-                curvature_init = config.curvature_initialization[block_idx]
-            self.c = nn.Parameter(torch.tensor(curvature_init).view(1))
-            self.c.requires_grad = True
-        elif config.curvature_mode == 'tied':
-            # Use a temporary value that will be replaced with shared parameter
-            # This ensures dependent modules aren't initialized with None
-            self.c = 1.0
-        elif config.curvature_mode == 'random': #defaulting to random init
-            if not config.per_head_curvature:
-                self.c = nn.Parameter(torch.rand(1))  # Single random value for the entire block
-                self.c.requires_grad = True
-            else:
-                self.c = nn.Parameter(torch.rand(config.n_head).repeat_interleave(config.n_embd//config.n_head))
-        
-        else:
-            raise ValueError(f"Invalid curvature mode: {config.curvature_mode}")
-
-
-        self.ln_1 = LayerNorm(config.n_embd, bias=config.bias)
-        self.attn = HyperbolicCausalSelfAttention(config, curvature = self.c)
-        self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
-        self.mlp = MLP(config, curvature = self.c)
-
+        self.ln_1 = LayerNorm(config.n_embd, bias=config.bias) # Pre-Attention LN
+        self.attn = CausalSelfAttention(config)
+        self.ln_attn_post = LayerNorm(config.n_embd, bias=config.bias) # Post-Attention LN
+        self.ln_2 = LayerNorm(config.n_embd, bias=config.bias) # Pre-MLP LN
+        self.mlp = MLP(config)
+        self.ln_mlp_post = LayerNorm(config.n_embd, bias=config.bias) # Post-MLP LN
 
     def forward(self, x):
-        # Run attention and get both output and reference point
-        attn_output, reference_point = self.attn(self.ln_1(x))
-        x = x + attn_output
+        # Apply pre-LN, attention, and post-LN
+        attn_output = self.attn(self.ln_1(x))
+        x = x + self.ln_attn_post(attn_output)
         
-        # Pass the reference point to MLP
-        x = x + self.mlp(self.ln_2(x), reference_point)
+        # Apply pre-LN, MLP, and post-LN
+        mlp_output = self.mlp(self.ln_2(x))
+        x = x + self.ln_mlp_post(mlp_output)
         return x
 
 @dataclass
@@ -221,35 +121,13 @@ class GPTConfig:
     n_embd: int = 768
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
-    curvature_mode: str = 'tied' # 'fixed', 'parametric', 'tied', or any other value for random init
-    curvature: float = 0.0 # Fixed curvature value when curvature_mode is 'fixed'
-    curvature_initialization: list = field(default_factory=list) # List of initial curvature values for parametric mode (one per layer when provided)
-    map_back_after_attention: bool = False # whether to map back to hyperbolic space after attention or after the MLP
-    per_head_curvature: bool = True # whether to use a different curvature for each head
-    use_embedding_curvature: bool = True #whether to use a curvature element also for the embedding layer. 
-    def __post_init__(self):
-        # Initialize curvature_initialization if it's empty
-        if not self.curvature_initialization:
-            self.curvature_initialization = [1.0-1.0e-3] + [1.0e-3] * (self.n_layer - 1)
-    
-    def set_layer_curvatures(self, curvature_values):
-        """
-        Set per-layer curvature initialization values for parametric mode.
-        
-        Args:
-            curvature_values: Either a list of values (one per layer) or a single value to use for all layers
-        """
-        if self.curvature_mode != 'parametric':
-            print("Warning: Setting layer curvatures but mode is not 'parametric'")
-            
-        if isinstance(curvature_values, (int, float)):
-            # If a single value is provided, repeat it for all layers
-            self.curvature_initialization = [float(curvature_values)] * self.n_layer
-        else:
-            # Expect a list with length equal to n_layer
-        
-            assert len(curvature_values) == self.n_layer, f"Expected {self.n_layer} curvature values, got {len(curvature_values)}"
-            self.curvature_initialization = list(curvature_values)
+    # Looping configuration
+    max_loops: int = 1  # Maximum number of times to loop the middle layer(s)
+    middle_layer_idx: int = -1 # Index of the layer to loop (-1 means no looping)
+    loop_noise_scale: float = 0.0 # Scale for Gaussian noise added in the first loop iteration (0.0 means no noise)
+    loops_representation: bool = False # Flag to track and return representations across loops
+    automatic_loop_exit: bool = False # Flag to automatically exit loops based on convergence
+    automatic_loop_exit_threshold: float = 0.01 # Threshold for automatic loop exit
 
 class GPT(nn.Module):
 
@@ -259,22 +137,11 @@ class GPT(nn.Module):
         assert config.block_size is not None
         self.config = config
 
-        # Create shared curvature parameter if using tied mode
-        self.shared_curvature = None
-        if config.curvature_mode == 'tied':
-            if config.per_head_curvature:
-                # Create one parameter per head, shared across all blocks
-                self.shared_curvature = nn.Parameter(torch.rand(config.n_head).repeat_interleave(config.n_embd//config.n_head))
-            else:
-                # Create a single parameter shared across all blocks
-                self.shared_curvature = nn.Parameter(torch.tensor(1.0).view(1))
-        if config.use_embedding_curvature: 
-            self.embedding_curvature = nn.Parameter(torch.tensor(torch.rand(1)))
         self.transformer = nn.ModuleDict(dict(
             wte = nn.Embedding(config.vocab_size, config.n_embd),
             wpe = nn.Embedding(config.block_size, config.n_embd),
             drop = nn.Dropout(config.dropout),
-            h = nn.ModuleList([self._create_block(config, i) for i in range(config.n_layer)]),
+            h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
             ln_f = LayerNorm(config.n_embd, bias=config.bias),
         ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
@@ -293,25 +160,6 @@ class GPT(nn.Module):
 
         # report number of parameters
         print("number of parameters: %.2fM" % (self.get_num_params()/1e6,))
-
-    def _create_block(self, config, idx):
-        # Create a new config object with the block index set
-        import copy
-        block_config = copy.copy(config)
-        block_config._block_idx = idx
-        
-        # Create the block
-        block = Block(block_config)
-        
-        # Pass the shared curvature parameter if using tied mode
-        if config.curvature_mode == 'tied' and self.shared_curvature is not None:
-            # For tied mode, we need to update both the block's curvature parameter
-            # and the curvature parameters in the attention and MLP modules
-            block.c = self.shared_curvature
-            block.attn.c = self.shared_curvature
-            block.mlp.c = self.shared_curvature
-            
-        return block
 
     def get_num_params(self, non_embedding=True):
         """
@@ -332,8 +180,6 @@ class GPT(nn.Module):
                 torch.nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
-        elif isinstance(module, nn.Parameter):
-            torch.nn.init.uniform_(module, a=0.0, b=1.0)
 
     def forward(self, idx, targets=None):
         device = idx.device
@@ -345,11 +191,44 @@ class GPT(nn.Module):
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
         x = self.transformer.drop(tok_emb + pos_emb)
-        if self.config.use_embedding_curvature:
-            reference_point = calculate_reference_point(x)
-            x = expmap(reference_point, x, self.embedding_curvature)
-        for block in self.transformer.h:
-            x = block(x)
+
+        loop_representations = [] if self.config.loops_representation else None
+
+        for i, block in enumerate(self.transformer.h):
+            # Check if this is the designated middle layer and if looping is enabled
+            if i == self.config.middle_layer_idx and self.config.max_loops > 1:
+                x_original = x.clone() # Store input before looping
+                num_loops_to_run = self.config.max_loops
+                for loop_idx in range(num_loops_to_run):
+                    # Add noise only on the first iteration if configured
+                    if loop_idx == 0 and self.config.loop_noise_scale > 0.0:
+                        noise = torch.randn_like(x) * self.config.loop_noise_scale
+                        x = x + noise
+                    # Apply the residual connection style from SMILESDecoder
+                    elif loop_idx > 0:
+                         x = x_original + x
+
+                    # Process through the layer
+                    x_new = block(x)
+
+                    # Check for automatic loop exit based on convergence
+                    if self.config.automatic_loop_exit:
+                        # Use Frobenius norm for difference, average over batch/sequence
+                        diff_norm = torch.norm(x_new - x, p='fro', dim=-1).mean()
+                        if diff_norm < self.config.automatic_loop_exit_threshold:
+                            #print(f"Automatic loop exit at layer {i}, loop {loop_idx+1}/{num_loops_to_run} (diff: {diff_norm:.4f})")
+                            x = x_new
+                            break # Exit the inner loop
+
+                    x = x_new
+
+                    # Store representation if enabled
+                    if self.config.loops_representation:
+                        loop_representations.append(x.clone())
+            else:
+                # Normal processing for non-looping layers
+                x = block(x)
+
         x = self.transformer.ln_f(x)
 
         if targets is not None:
@@ -361,7 +240,10 @@ class GPT(nn.Module):
             logits = self.lm_head(x[:, [-1], :]) # note: using list [-1] to preserve the time dim
             loss = None
 
-        return logits, loss
+        if self.config.loops_representation:
+            return logits, loss, loop_representations
+        else:
+            return logits, loss
 
     def crop_block_size(self, block_size):
         # model surgery to decrease the block size if necessary

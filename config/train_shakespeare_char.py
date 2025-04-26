@@ -11,7 +11,7 @@ always_save_checkpoint = False
 
 wandb_log = True # override via command line if you like
 wandb_project = 'hyperbolic-shakespeare-char'
-wandb_run_name = 'mini-gpt'
+wandb_run_name = 'looped_shakespeare-char'
 
 dataset = 'shakespeare_char'
 gradient_accumulation_steps = 1
