@@ -126,7 +126,7 @@ class GPTConfig:
     middle_layer_idx: int = -1 # Index of the layer to loop (-1 means no looping)
     loop_noise_scale: float = 0.0 # Scale for Gaussian noise added in the first loop iteration (0.0 means no noise)
     loops_representation: bool = False # Flag to track and return representations across loops
-    automatic_loop_exit: bool = False # Flag to automatically exit loops based on convergence
+    automatic_loop_exit: bool = True # Flag to automatically exit loops based on convergence
     automatic_loop_exit_threshold: float = 0.01 # Threshold for automatic loop exit
 
 class GPT(nn.Module):
