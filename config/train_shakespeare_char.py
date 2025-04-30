@@ -1,7 +1,7 @@
 # train a miniature character-level shakespeare model
 # good for debugging and playing on macbooks and such
 
-out_dir = 'Hyperbolic-out-shakespeare-char'
+out_dir = 'looping-out-shakespeare-char'
 eval_interval = 10 # keep frequent because we'll overfit
 eval_iters = 20
 log_interval = 1 # don't print too too often
