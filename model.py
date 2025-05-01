@@ -1,322 +1,271 @@
 """
-Full definition of a GPT Language Model, all of it in this single file.
-References:
-1) the official GPT-2 TensorFlow implementation released by OpenAI:
-https://github.com/openai/gpt-2/blob/master/src/model.py
-2) huggingface/transformers PyTorch implementation:
-https://github.com/huggingface/transformers/blob/main/src/transformers/models/gpt2/modeling_gpt2.py
+Full definition of a GPT Language Model with higher-order attention.
+Adds one "mixed" block (order-2 followed by order-3 attention) every 4
+regular blocks.  Drop-in replacement for the original minGPT file.
 """
 
-import math
-import inspect
-from dataclasses import dataclass, field
-
+import math, inspect
+from dataclasses import dataclass
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-# Hyperbolic geometry utility functions
-def clamp_curvature(c):
-    if isinstance(c, torch.Tensor):
-        return torch.clamp(c, min=1e-4, max=1.0)
-    else:
-        return max(1e-4, min(c, 1.0))
-
-def mobius_addition(x, y, c):
-    """Mobius addition in hyperbolic space with curvature c"""
-    c = clamp_curvature(c)
-    # Compute norms
-    x_norm = torch.norm(x, dim=-1, keepdim=True)
-    y_norm = torch.norm(y, dim=-1, keepdim=True)
-    # Compute the inner product
-    inner_product = torch.sum(x * y, dim=-1, keepdim=True)
-    
-    # Compute numerator and denominator following the standard formula
-    numerator = (1 + 2*c * inner_product + c * (y_norm ** 2)) * x + \
-                (1 - c * (x_norm ** 2)) * y
-    denominator = 1 + 2*c * inner_product + (c ** 2) * (x_norm ** 2) * (y_norm ** 2)
-    
-    return numerator / denominator
-
-def scaling_factor(x, c):
-    """Compute scaling factor for hyperbolic space with curvature c"""
-    c = clamp_curvature(c)
-    x_norm = torch.norm(x, dim=-1, keepdim=True)
-    return 2/(1+c*x_norm**2)
-
-def expmap(x, v, c):
-    """Exponential map from tangent space to hyperbolic space with curvature c"""
-    c = clamp_curvature(c)
-    scaling_factor_x = scaling_factor(x, c)
-    v_norm = torch.norm(v, dim=-1, keepdim=True)
-    second_term = (1/c**0.5)*torch.tanh((c*scaling_factor_x*v_norm**2/2)**0.5)*v/v_norm
-    return mobius_addition(x, second_term, c)
-
-def logmap(x, u, c):
-    """Logarithmic map from hyperbolic space to tangent space with curvature c"""
-    c = clamp_curvature(c)
-    scaling_factor_x = scaling_factor(x, c)
-    mob_addition = mobius_addition(-x, u, c)
-    addition_norm = torch.norm(mob_addition, dim=-1, keepdim=True)
-    constant_factor = 2 / (scaling_factor_x * c**0.5)
-    direction_factor = mob_addition / addition_norm
-    arg = torch.clamp((c * addition_norm) ** 0.5, min=-0.999, max=0.999)  # Single-line fix
-    return constant_factor * torch.arctanh(arg) * direction_factor
-
-def calculate_reference_point(x, per_head_curvature=False):
-    """Calculate reference point for hyperbolic operations"""
-    B, T, C = x.size()
-    ref_point = torch.zeros_like(x[:, :1, :])
-    if T > 1:
-        ref_point = x[:, :-1, :]
-        ref_point = F.pad(ref_point, (0, 0, 1, 0), mode='constant', value=0)
-    return ref_point
-
+# ---------------------------------------------------------------------
+#  LayerNorm with optional bias
+# ---------------------------------------------------------------------
 class LayerNorm(nn.Module):
-    """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
-
     def __init__(self, ndim, bias):
         super().__init__()
         self.weight = nn.Parameter(torch.ones(ndim))
-        self.bias = nn.Parameter(torch.zeros(ndim)) if bias else None
+        self.bias   = nn.Parameter(torch.zeros(ndim)) if bias else None
+    def forward(self, x):
+        return F.layer_norm(x, self.weight.shape, self.weight, self.bias, 1e-5)
 
-    def forward(self, input):
-        return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
+# ---------------------------------------------------------------------
+#  Rotary + RMSNorm helpers (optional, unused here but left for completeness)
+# ---------------------------------------------------------------------
+class RMSNorm(nn.Module):
+    def __init__(self, dim: int, eps: float = 1e-6):
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(dim))
+        self.eps = eps
+    def forward(self, x):
+        rms = x.pow(2).mean(-1, keepdim=True).add(self.eps).sqrt()
+        return self.weight * (x / rms)
 
-class HyperbolicCausalSelfAttention(nn.Module):
+# ------------------------------------------------------------------
+#  Higher-order attention  (causal, top-k, order ≥ 2)
+# ------------------------------------------------------------------
+class HigherOrderAttention(nn.Module):
+    letters = "ijklmnopqrstuvwxyz"
 
-    def __init__(self, config, curvature):
+    def __init__(self, order: int, n_head: int, embed_dim: int,
+                 head_dim: int = 64, dropout: float = 0.0):
+        super().__init__()
+        assert order >= 2
+        self.order, self.n_head, self.head_dim = order, n_head, head_dim
+        self.scale = head_dim ** -0.5
+        self.dropout = nn.Dropout(dropout)
+
+        self.q_proj  = nn.Linear(embed_dim, n_head * head_dim, bias=False)
+        self.k_projs = nn.ModuleList([nn.Linear(embed_dim, n_head * head_dim, bias=False)
+                                      for _ in range(order - 1)])
+        self.v_projs = nn.ModuleList([nn.Linear(embed_dim, n_head * head_dim, bias=False)
+                                      for _ in range(order - 1)])
+        self.out_proj = nn.Linear(n_head * head_dim, embed_dim, bias=False)
+
+    # ---------------- helper: gather along time --------------------
+    @staticmethod
+    def _gather_time(tensor, idx):
+        """
+        tensor : (B, H, T, D)
+        idx    : (B, H, T, k)   indices < T   (no future positions)
+        return : (B, H, T, k, D)
+        """
+        B, H, T, D = tensor.shape
+        k = idx.size(-1)
+        # make both tensors 5-D so torch.gather ranks match
+        tensor_5d = tensor.unsqueeze(3).expand(-1, -1, -1, k, -1)        # (B,H,T,k,D)
+        idx_5d    = idx.unsqueeze(-1).expand(-1, -1, -1, -1, D)          # (B,H,T,k,D)
+        return torch.gather(tensor_5d, 2, idx_5d)                        # dim=2 is T
+
+    # ---------------- split heads ----------------------------------
+    @staticmethod
+    def _split_head(x, n_head, head_dim):
+        B, T, _ = x.shape
+        return x.view(B, T, n_head, head_dim).transpose(1, 2).contiguous()  # (B,H,T,D)
+
+    # ---------------- forward --------------------------------------
+    def forward(self, x):
+        B, T, _ = x.shape
+        k_keep = max(1, math.ceil(T ** (2.0 / self.order)))
+        dev = x.device
+        t_arange = torch.arange(T, device=dev)
+
+        # 1) project Q,K,V as before
+        q = self._split_head(self.q_proj(x), self.n_head, self.head_dim)
+        Ks = [self._split_head(kp(x), self.n_head, self.head_dim) for kp in self.k_projs]
+        Vs = [self._split_head(vp(x), self.n_head, self.head_dim) for vp in self.v_projs]
+
+        gathered_K, gathered_V, letters = [], [], []
+        for r, (K_r, V_r) in enumerate(zip(Ks, Vs)):
+            # 2) compute raw logits and mask future positions
+            logits = torch.einsum("b h t d, b h s d -> b h t s", q, K_r) * self.scale
+            causal_mask = (t_arange[None,None,:,None] < t_arange[None,None,None,:])  # True where s>t
+            logits = logits.masked_fill(causal_mask, float("-inf"))
+
+            # 3) dynamic per-time top-k
+            #    build an empty tensor for indices of shape (B,H,T,k_keep)
+            topk_idx = torch.zeros(B, self.n_head, T, k_keep, dtype=torch.long, device=dev)
+            for t in range(T):
+                # only consider keys 0..t
+                valid_slice = logits[:, :, t, :t+1]                # (B,H,t+1)
+                this_k = min(k_keep, t+1)
+                _, idx_t = valid_slice.topk(this_k, dim=-1)        # (B,H,this_k)
+                if this_k < k_keep:
+                    # pad the rest with the last valid index (or zero)
+                    pad = idx_t[:, :, -1:].expand(-1, -1, k_keep - this_k)
+                    idx_t = torch.cat([idx_t, pad], dim=-1)       # (B,H,k_keep)
+                topk_idx[:, :, t, :] = idx_t
+
+            # store for debug / forward-leak test
+            self._last_topk = topk_idx
+
+            # 4) gather the actual K/V
+            gathered_K.append(self._gather_time(K_r, topk_idx))
+            gathered_V.append(self._gather_time(V_r, topk_idx))
+            letters.append(self.letters[r+1])
+
+        # 5) compute higher-order logits & values exactly as before
+        einsum_in  = ["b h i d"] + [f"b h i {ltr} d" for ltr in letters]
+        einsum_out = "b h i " + "".join(letters)
+        A = torch.einsum(", ".join(einsum_in) + " -> " + einsum_out,
+                         q, *gathered_K) * self.scale
+        alpha = self.dropout(torch.softmax(A, dim=-1))
+
+        einsum_in  = ["b h i " + "".join(letters)] + \
+                     [f"b h i {ltr} d" for ltr in letters]
+        out = torch.einsum(", ".join(einsum_in) + " -> b h i d",
+                           alpha, *gathered_V)
+
+        out = out.transpose(1, 2).contiguous().view(B, T, self.n_head * self.head_dim)
+        return self.out_proj(out)
+
+# ---------------------------------------------------------------------
+#  Vanilla causal self-attention (order-2)
+# ---------------------------------------------------------------------
+class CausalSelfAttention(nn.Module):
+    def __init__(self, config):
         super().__init__()
         assert config.n_embd % config.n_head == 0
-        # key, query, value projections for all heads, but in a batch
         self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd, bias=config.bias)
-        # output projection
         self.c_proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
-        # regularization
-        self.attn_dropout = nn.Dropout(config.dropout)
+        self.attn_dropout  = nn.Dropout(config.dropout)
         self.resid_dropout = nn.Dropout(config.dropout)
-        self.n_head = config.n_head
-        self.n_embd = config.n_embd
-        self.dropout = config.dropout
-        self.per_head_curvature = config.per_head_curvature
-        self.c = curvature
-        # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
-        self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
+        self.n_head   = config.n_head
+        self.n_embd   = config.n_embd
+        self.dropout  = config.dropout
+        self.flash    = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
         if not self.flash:
-            print("WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0")
-            # causal mask to ensure that attention is only applied to the left in the input sequence
-            self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
-                                        .view(1, 1, config.block_size, config.block_size))
+            self.register_buffer(
+                "bias",
+                torch.tril(torch.ones(config.block_size, config.block_size))
+                     .view(1, 1, config.block_size, config.block_size)
+            )
 
     def forward(self, x):
-        B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
+        B, T, C = x.size()
+        q, k, v = self.c_attn(x).split(self.n_embd, dim=2)
+        k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
+        q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
+        v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
 
-        # calculate query, key, values for all heads in batch and move head forward to be the batch dim
-        q, k, v  = self.c_attn(x).split(self.n_embd, dim=2)
-        k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
-        q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
-        v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
-
-        # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         if self.flash:
-            # efficient attention using Flash Attention CUDA kernels
-            y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True)
+            y = torch.nn.functional.scaled_dot_product_attention(
+                    q, k, v,
+                    dropout_p=self.dropout if self.training else 0,
+                    is_causal=True)
         else:
-            # manual implementation of attention
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
             att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
-            y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
-        y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
+            y   = att @ v
+        y = y.transpose(1, 2).contiguous().view(B, T, C)
+        return self.resid_dropout(self.c_proj(y))
 
-        return y
-
+# ---------------------------------------------------------------------
+#  Feed-forward
+# ---------------------------------------------------------------------
 class MLP(nn.Module):
-
-    def __init__(self, config, curvature):
+    def __init__(self, config):
         super().__init__()
         self.c_fc    = nn.Linear(config.n_embd, 4 * config.n_embd, bias=config.bias)
         self.gelu    = nn.GELU()
         self.c_proj  = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
-        self.c = curvature
-        
     def forward(self, x):
-        x = self.c_fc(x)
-        x = self.gelu(x)
-        x = self.c_proj(x)
-        x = self.dropout(x)
-        return x
+        return self.dropout(self.c_proj(self.gelu(self.c_fc(x))))
 
+# ---------------------------------------------------------------------
+#  Standard Transformer block  (order-2 only)
+# ---------------------------------------------------------------------
 class Block(nn.Module):
-
     def __init__(self, config):
         super().__init__()
-
-        if config.curvature_mode == 'fixed':
-            self.c = config.curvature
-        elif config.curvature_mode == 'parametric':
-            if config.curvature_initialization is None:
-                # Default to 1.0 if no initialization is provided
-                curvature_init = 1.0
-            else:
-                # In this case, curvature_initialization should be a list with n_layer elements
-                # Each block will take its corresponding initialization value
-                block_idx = getattr(config, '_block_idx', 0)  # Get block index if it exists
-                curvature_init = config.curvature_initialization[block_idx]
-            self.c = nn.Parameter(torch.tensor(curvature_init).view(1))
-            self.c.requires_grad = True
-        elif config.curvature_mode == 'tied':
-            # Use a temporary value that will be replaced with shared parameter
-            # This ensures dependent modules aren't initialized with None
-            self.c = 1.0
-        elif config.curvature_mode == 'random': #defaulting to random init
-            if not config.per_head_curvature:
-                self.c = nn.Parameter(torch.rand(1))  # Single random value for the entire block
-                self.c.requires_grad = True
-            else:
-                self.c = nn.Parameter(torch.rand(config.n_head).repeat_interleave(config.n_embd//config.n_head))
-        
-        else:
-            raise ValueError(f"Invalid curvature mode: {config.curvature_mode}")
-
-
         self.ln_1 = LayerNorm(config.n_embd, bias=config.bias)
-        self.attn = HyperbolicCausalSelfAttention(config, curvature = self.c)
+        self.attn = CausalSelfAttention(config)
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
-        self.mlp = MLP(config, curvature = self.c)
-
-
+        self.mlp  = MLP(config)
     def forward(self, x):
-        # Input x is assumed to be in hyperbolic space (mapped in GPT.forward or previous block)
-        reference_point = calculate_reference_point(x)
-
-        # Map to tangent space at reference point before attention
-        x_tan = logmap(reference_point, x, self.c)
-        attn_update_tan = self.attn(self.ln_1(x_tan))
-        # Map attention update back to hyperbolic space relative to reference point
-        attn_update_hyp = expmap(reference_point, attn_update_tan, self.c)
-        # Add residual using Mobius addition
-        x = mobius_addition(x, attn_update_hyp, self.c)
-
-
-        x_tan_mlp = logmap(reference_point, x, self.c)
-        mlp_update_tan = self.mlp(self.ln_2(x_tan_mlp))
-        # Map MLP update back to hyperbolic space relative to its reference point
-        mlp_update_hyp = expmap(reference_point, mlp_update_tan, self.c)
-        # Add residual using Mobius addition
-        x = mobius_addition(x, mlp_update_hyp, self.c)
-
+        x = x + self.attn(self.ln_1(x))
+        x = x + self.mlp(self.ln_2(x))
         return x
 
+# ---------------------------------------------------------------------
+#  Mixed block: order-2 followed immediately by order-3
+# ---------------------------------------------------------------------
+class MixedBlock(nn.Module):
+    """Used every 4th position in the stack."""
+    def __init__(self, config):
+        super().__init__()
+        self.ln_1  = LayerNorm(config.n_embd, bias=config.bias)
+        self.attn2 = CausalSelfAttention(config)                             # order-2
+        self.ln_hoa = LayerNorm(config.n_embd, bias=config.bias)
+        self.attn3  = HigherOrderAttention(order=3,
+                                           n_head=config.n_head,
+                                           embed_dim=config.n_embd,
+                                           head_dim=config.n_embd // config.n_head,
+                                           dropout=config.dropout)           # order-3
+        self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
+        self.mlp  = MLP(config)
+    def forward(self, x):
+        x = x + self.attn2(self.ln_1(x))
+        x = x + self.attn3(self.ln_hoa(x))
+        x = x + self.mlp(self.ln_2(x))
+        return x
+
+# ---------------------------------------------------------------------
+#  GPT configuration
+# ---------------------------------------------------------------------
 @dataclass
 class GPTConfig:
-    block_size: int = 1024
-    vocab_size: int = 50304 # GPT-2 vocab_size of 50257, padded up to nearest multiple of 64 for efficiency
-    n_layer: int = 12
-    n_head: int = 12
-    n_embd: int = 768
-    dropout: float = 0.0
-    bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
-    curvature_mode: str = 'tied' # 'fixed', 'parametric', 'tied', or any other value for random init
-    curvature: float = 0.0 # Fixed curvature value when curvature_mode is 'fixed'
-    curvature_initialization: list = field(default_factory=list) # List of initial curvature values for parametric mode (one per layer when provided)
-    per_head_curvature: bool = True # whether to use a different curvature for each head
-    use_embedding_curvature: bool = True #whether to use a curvature element also for the embedding layer. 
-    def __post_init__(self):
-        # Initialize curvature_initialization if it's empty
-        if not self.curvature_initialization:
-            self.curvature_initialization = [1.0-1.0e-3] + [1.0e-3] * (self.n_layer - 1)
-    
-    def set_layer_curvatures(self, curvature_values):
-        """
-        Set per-layer curvature initialization values for parametric mode.
-        
-        Args:
-            curvature_values: Either a list of values (one per layer) or a single value to use for all layers
-        """
-        if self.curvature_mode != 'parametric':
-            print("Warning: Setting layer curvatures but mode is not 'parametric'")
-            
-        if isinstance(curvature_values, (int, float)):
-            # If a single value is provided, repeat it for all layers
-            self.curvature_initialization = [float(curvature_values)] * self.n_layer
-        else:
-            # Expect a list with length equal to n_layer
-        
-            assert len(curvature_values) == self.n_layer, f"Expected {self.n_layer} curvature values, got {len(curvature_values)}"
-            self.curvature_initialization = list(curvature_values)
+    block_size : int  = 1024
+    vocab_size : int  = 50304
+    n_layer    : int  = 12
+    n_head     : int  = 12
+    n_embd     : int  = 768
+    dropout    : float = 0.0
+    bias       : bool  = True
 
+# ---------------------------------------------------------------------
+#  GPT model
+# ---------------------------------------------------------------------
 class GPT(nn.Module):
-
     def __init__(self, config):
         super().__init__()
-        assert config.vocab_size is not None
-        assert config.block_size is not None
         self.config = config
-
-        # Create shared curvature parameter if using tied mode
-        self.shared_curvature = None
-        if config.curvature_mode == 'tied':
-            if config.per_head_curvature:
-                # Create one parameter per head, shared across all blocks
-                self.shared_curvature = nn.Parameter(torch.rand(config.n_head).repeat_interleave(config.n_embd//config.n_head))
-            else:
-                # Create a single parameter shared across all blocks
-                self.shared_curvature = nn.Parameter(torch.tensor(1.0).view(1))
-        if config.use_embedding_curvature: 
-            self.embedding_curvature = nn.Parameter(torch.tensor(torch.rand(1)))
         self.transformer = nn.ModuleDict(dict(
             wte = nn.Embedding(config.vocab_size, config.n_embd),
             wpe = nn.Embedding(config.block_size, config.n_embd),
             drop = nn.Dropout(config.dropout),
-            h = nn.ModuleList([self._create_block(config, i) for i in range(config.n_layer)]),
+            h = nn.ModuleList([
+                    MixedBlock(config) if (i % 4 == 3) else Block(config)
+                    for i in range(config.n_layer)
+                ]),
             ln_f = LayerNorm(config.n_embd, bias=config.bias),
         ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
-        # with weight tying when using torch.compile() some warnings get generated:
-        # "UserWarning: functional_call was passed multiple values for tied weights.
-        # This behavior is deprecated and will be an error in future versions"
-        # not 100% sure what this is, so far seems to be harmless. TODO investigate
-        self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying
+        self.transformer.wte.weight = self.lm_head.weight  # weight tying
 
-        # init all weights
         self.apply(self._init_weights)
-        # apply special scaled init to the residual projections, per GPT-2 paper
         for pn, p in self.named_parameters():
             if pn.endswith('c_proj.weight'):
-                torch.nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * config.n_layer))
+                nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * config.n_layer))
+        print(f"number of parameters: {self.get_num_params()/1e6:.2f}M")
 
-        # report number of parameters
-        print("number of parameters: %.2fM" % (self.get_num_params()/1e6,))
-
-    def _create_block(self, config, idx):
-        # Create a new config object with the block index set
-        import copy
-        block_config = copy.copy(config)
-        block_config._block_idx = idx
-        
-        # Create the block
-        block = Block(block_config)
-        
-        # Pass the shared curvature parameter if using tied mode
-        if config.curvature_mode == 'tied' and self.shared_curvature is not None:
-            # For tied mode, we need to update both the block's curvature parameter
-            # and the curvature parameters in the attention and MLP modules
-            block.c = self.shared_curvature
-            block.attn.c = self.shared_curvature
-            block.mlp.c = self.shared_curvature
-            
-        return block
-
+    # --------------------- utilities ---------------------------------
     def get_num_params(self, non_embedding=True):
-        """
-        Return the number of parameters in the model.
-        For non-embedding count (default), the position embeddings get subtracted.
-        The token embeddings would too, except due to the parameter sharing these
-        params are actually used as weights in the final layer, so we include them.
-        """
         n_params = sum(p.numel() for p in self.parameters())
         if non_embedding:
             n_params -= self.transformer.wpe.weight.numel()
@@ -324,40 +273,33 @@ class GPT(nn.Module):
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
-            if module.bias is not None:
-                torch.nn.init.zeros_(module.bias)
+            nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module.bias is not None: nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
-        elif isinstance(module, nn.Parameter):
-            torch.nn.init.uniform_(module, a=0.0, b=1.0)
+            nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
+    # -------------------- forward ------------------------------------
     def forward(self, idx, targets=None):
         device = idx.device
-        b, t = idx.size()
-        assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
-        pos = torch.arange(0, t, dtype=torch.long, device=device) # shape (t)
+        b, t   = idx.size()
+        assert t <= self.config.block_size
+        pos = torch.arange(0, t, dtype=torch.long, device=device)
 
-        # forward the GPT model itself
-        tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
-        pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
+        tok_emb = self.transformer.wte(idx)
+        pos_emb = self.transformer.wpe(pos)
         x = self.transformer.drop(tok_emb + pos_emb)
-        if self.config.use_embedding_curvature:
-            reference_point = calculate_reference_point(x)
-            x = expmap(reference_point, x, self.embedding_curvature)
+
         for block in self.transformer.h:
             x = block(x)
         x = self.transformer.ln_f(x)
 
         if targets is not None:
-            # if we are given some desired targets also calculate the loss
             logits = self.lm_head(x)
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)),
+                                   targets.view(-1), ignore_index=-1)
         else:
-            # inference-time mini-optimization: only forward the lm_head on the very last position
-            logits = self.lm_head(x[:, [-1], :]) # note: using list [-1] to preserve the time dim
+            logits = self.lm_head(x[:, [-1], :])
             loss = None
-
         return logits, loss
 
     def crop_block_size(self, block_size):

@@ -475,57 +475,7 @@ while True:
                 "mfu": running_mfu*100, # convert to percentage
             }
             
-            # Add curvature values to the log if they exist
-            if hasattr(raw_model.config, 'curvature_mode') and raw_model.config.curvature_mode in ['parametric', 'random','tied']:
-                all_curvature_values = []
-                for i, block in enumerate(raw_model.transformer.h):
-                    if hasattr(block, 'c') and isinstance(block.c, nn.Parameter):
-                        # Check if using per-head curvature
-                        if block.c.dim() > 0 and block.c.numel() > 1:
-                            # Log per-head curvature values
-                            if block.c.numel() == raw_model.config.n_head:
-                                # Original per-head version (one value per head)
-                                for h, c_val in enumerate(block.c.detach().cpu()):
-                                    log_dict[f'curvature/block_{i}/head_{h}'] = c_val.item()
-                                    all_curvature_values.append(c_val.item())
-                                # Also log block average
-                                block_avg = block.c.detach().mean().cpu().item()
-                                log_dict[f'curvature/block_{i}'] = block_avg
-                            else:
-                                # Expanded version where each head's value is repeated
-                                # Sample just the first value for each head to avoid too many logs
-                                head_size = raw_model.config.n_embd // raw_model.config.n_head
-                                for h in range(raw_model.config.n_head):
-                                    head_val = block.c.detach().cpu()[h * head_size].item()
-                                    log_dict[f'curvature/block_{i}/head_{h}'] = head_val
-                                    all_curvature_values.append(head_val)
-                                # Also log block average
-                                block_avg = block.c.detach().mean().cpu().item()
-                                log_dict[f'curvature/block_{i}'] = block_avg
-                        else:
-                            # Original single curvature per block
-                            c_value = block.c.detach().cpu().item()
-                            log_dict[f'curvature/block_{i}'] = c_value
-                            all_curvature_values.append(c_value)
-                
-                # Add curvature statistics
-                if all_curvature_values:
-                    log_dict['curvature/avg'] = sum(all_curvature_values) / len(all_curvature_values)
-                    log_dict['curvature/min'] = min(all_curvature_values)
-                    log_dict['curvature/max'] = max(all_curvature_values)
-                    
-                    # Add a flag to indicate per-head curvature is being used
-                    log_dict['curvature/per_head'] = hasattr(raw_model.config, 'per_head_curvature') and raw_model.config.per_head_curvature
-                
-                # Add embedding curvature if it exists
-                if hasattr(raw_model, 'embedding_curvature') and isinstance(raw_model.embedding_curvature, nn.Parameter):
-                    embedding_curvature = raw_model.embedding_curvature.detach().cpu().item()
-                    log_dict['curvature/embedding'] = embedding_curvature
-                    all_curvature_values.append(embedding_curvature)
-                    # Update statistics to include embedding curvature
-                    log_dict['curvature/avg'] = sum(all_curvature_values) / len(all_curvature_values)
-                    log_dict['curvature/min'] = min(all_curvature_values)
-                    log_dict['curvature/max'] = max(all_curvature_values)
+
             
             wandb.log(log_dict)
         if losses['val'] < best_val_loss or always_save_checkpoint:
