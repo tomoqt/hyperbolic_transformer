@@ -83,9 +83,9 @@ class LayerNorm(nn.Module):
     def forward(self, input):
         return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
 
-class HyperbolicCausalSelfAttention(nn.Module):
+class CausalSelfAttention(nn.Module):
 
-    def __init__(self, config, curvature):
+    def __init__(self, config):
         super().__init__()
         assert config.n_embd % config.n_head == 0
         # key, query, value projections for all heads, but in a batch
@@ -98,8 +98,6 @@ class HyperbolicCausalSelfAttention(nn.Module):
         self.n_head = config.n_head
         self.n_embd = config.n_embd
         self.dropout = config.dropout
-        self.per_head_curvature = config.per_head_curvature
-        self.c = curvature
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
         if not self.flash:
@@ -134,13 +132,12 @@ class HyperbolicCausalSelfAttention(nn.Module):
 
 class MLP(nn.Module):
 
-    def __init__(self, config, curvature):
+    def __init__(self, config):
         super().__init__()
         self.c_fc    = nn.Linear(config.n_embd, 4 * config.n_embd, bias=config.bias)
         self.gelu    = nn.GELU()
         self.c_proj  = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
-        self.c = curvature
         
     def forward(self, x):
         x = self.c_fc(x)
@@ -183,9 +180,9 @@ class Block(nn.Module):
 
 
         self.ln_1 = LayerNorm(config.n_embd, bias=config.bias)
-        self.attn = HyperbolicCausalSelfAttention(config, curvature = self.c)
+        self.attn = CausalSelfAttention(config)
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
-        self.mlp = MLP(config, curvature = self.c)
+        self.mlp = MLP(config)
 
 
     def forward(self, x):
@@ -199,7 +196,6 @@ class Block(nn.Module):
         attn_update_hyp = expmap(reference_point, attn_update_tan, self.c)
         # Add residual using Mobius addition
         x = mobius_addition(x, attn_update_hyp, self.c)
-
 
         x_tan_mlp = logmap(reference_point, x, self.c)
         mlp_update_tan = self.mlp(self.ln_2(x_tan_mlp))
