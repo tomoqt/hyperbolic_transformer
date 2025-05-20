@@ -247,8 +247,16 @@ def get_batch(split):
     else:
         data = np.memmap(os.path.join(data_dir, 'val.bin'), dtype=np.uint16, mode='r')
     ix = torch.randint(len(data) - block_size, (batch_size,))
-    x = torch.stack([torch.from_numpy((data[i:i+block_size]).astype(np.int64)) for i in ix])
-    y = torch.stack([torch.from_numpy((data[i+1:i+1+block_size]).astype(np.int64)) for i in ix])
+    x_np_list = [(data[i:i+block_size]).astype(np.int64) for i in ix]
+    y_np_list = [(data[i+1:i+1+block_size]).astype(np.int64) for i in ix]
+
+    # Filter out invalid tokens by replacing them with padding token 0
+    for batch_idx in range(batch_size):
+        x_np_list[batch_idx] = np.where(x_np_list[batch_idx] > 50257, 0, x_np_list[batch_idx]) #this is because the dataset seems to contain some artifaacts, with indices over 50257. but it's just 20 o them and spaced out quite  systematically, so i'm assuming it's just a mistake in tokenization, and we're still properly tokenizing most tokens.
+        y_np_list[batch_idx] = np.where(y_np_list[batch_idx] > 50257, 0, y_np_list[batch_idx])
+
+    x = torch.stack([torch.from_numpy(arr) for arr in x_np_list])
+    y = torch.stack([torch.from_numpy(arr) for arr in y_np_list])
     if device_type == 'cuda':
         # pin arrays x,y, which allows us to move them to GPU asynchronously (non_blocking=True)
         x, y = x.pin_memory().to(device, non_blocking=True), y.pin_memory().to(device, non_blocking=True)
@@ -279,6 +287,7 @@ if init_from == 'scratch':
     if meta_vocab_size is None:
         print("defaulting to vocab_size of GPT-2 to 50304 (50257 rounded up for efficiency)")
     model_args['vocab_size'] = meta_vocab_size if meta_vocab_size is not None else 50304
+    print(f"Using vocab_size = {model_args['vocab_size']} for new model initialization.")
     gptconf = GPTConfig(**model_args)
     model = GPT(gptconf)
 elif init_from == 'resume':
@@ -438,7 +447,7 @@ def get_lr(it):
 if wandb_log and master_process:
     import wandb
     wandb.init(project=wandb_project, name=wandb_run_name, config=config)
-    wandb.watch(model, log="all", log_freq=eval_interval) # log gradients and parameters
+    #wandb.watch(model, log="all", log_freq=eval_interval) # log gradients and parameters
 
 # training loop
 X, Y = get_batch('train') # fetch the very first batch
