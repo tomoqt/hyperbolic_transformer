@@ -80,13 +80,13 @@ class MLP(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.c_fc    = nn.Linear(config.n_embd, 4 * config.n_embd, bias=config.bias)
-        self.gelu    = nn.GELU()
+        self.silu    = nn.SiLU()
         self.c_proj  = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
 
     def forward(self, x):
         x = self.c_fc(x)
-        x = self.gelu(x)
+        x = self.SiLU(x)
         x = self.c_proj(x)
         x = self.dropout(x)
         return x
@@ -95,21 +95,33 @@ class Block(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.ln_1 = LayerNorm(config.n_embd, bias=config.bias) # Pre-Attention LN
+        self.rms_norm_attn_input = nn.RMSNorm(config.n_embd)
         self.attn = CausalSelfAttention(config)
-        self.ln_attn_post = LayerNorm(config.n_embd, bias=config.bias) # Post-Attention LN
-        self.ln_2 = LayerNorm(config.n_embd, bias=config.bias) # Pre-MLP LN
+        self.rms_norm_attn_output = nn.RMSNorm(config.n_embd)
+        
+        self.rms_norm_mlp_input = nn.RMSNorm(config.n_embd)
         self.mlp = MLP(config)
-        self.ln_mlp_post = LayerNorm(config.n_embd, bias=config.bias) # Post-MLP LN
+        self.rms_norm_mlp_output = nn.RMSNorm(config.n_embd)
 
     def forward(self, x):
-        # Apply pre-LN, attention, and post-LN
-        attn_output = self.attn(self.ln_1(x))
-        x = x + self.ln_attn_post(attn_output)
+        # Original structure: attn_output = self.attn(torch.nn.RMSNorm(x))
+        attn_input_normalized = self.rms_norm_attn_input(x)
+        attn_output = self.attn(attn_input_normalized)
         
-        # Apply pre-LN, MLP, and post-LN
-        mlp_output = self.mlp(self.ln_2(x))
-        x = x + self.ln_mlp_post(mlp_output)
+        # Original structure: x = x + torch.nn.RMSNorm(attn_output)
+        # The residual connection adds the *normalized* output of the attention block.
+        attn_output_normalized = self.rms_norm_attn_output(attn_output)
+        x = x + attn_output_normalized
+        
+        # Original structure: mlp_output = self.mlp(torch.nn.RMSNorm(x))
+        # Note: x here is the original x plus the normalized attention output.
+        mlp_input_normalized = self.rms_norm_mlp_input(x)
+        mlp_output = self.mlp(mlp_input_normalized)
+        
+        # Original structure: x = x + torch.nn.RMSNorm(mlp_output)
+        # The residual connection adds the *normalized* output of the MLP block.
+        mlp_output_normalized = self.rms_norm_mlp_output(mlp_output)
+        x = x + mlp_output_normalized
         return x
 
 @dataclass
@@ -121,16 +133,15 @@ class GPTConfig:
     n_embd: int = 768
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
+    
     # Looping configuration
-    max_loops: int = 1  # Maximum number of times to loop the designated block(s)
-    loop_center_idx: int = -1 # Index of the center layer for looping (-1 means no looping)
-    loop_radius: int = 0 # Radius of blocks around the center to include in looping (0 means only center)
-    tied_looping: bool = True # True: loop the entire block range together. False: loop each block independently.
-    loop_noise_scale: float = 0.0 # Scale for Gaussian noise added in the first loop iteration (0.0 means no noise)
-    loops_representation: bool = False # Flag to track and return representations across loops
-    automatic_loop_exit: bool = True # Flag to automatically exit loops based on convergence
-    automatic_loop_exit_threshold: float = 0.001 # Threshold for automatic loop exit
-    concatenate_initial_representation: bool = True # concatenate initial representation before looping, instead of summing to residual stream, and adapt it
+    loop_groups: list[list[int]] = None # Defines groups of layer indices to be looped together. E.g., [[0,1],[3]]. If None, default behavior (e.g. innermost layer) is handled by training script.
+    loop_counts: list[int] = None # Number of loops for each group in loop_groups. If None or entry <=0, max_loops is used for that group.
+    loop_noise_scale: float = 0.0 # Scale for Gaussian noise added in the first multi-loop iteration of a group (0.0 means no noise)
+    concatenate_initial_representation: bool = True # Concatenate initial representation before looping, instead of summing to residual stream, and adapt it
+    loops_representation: bool = False # Flag to track and return representations across loops (for debugging/analysis)
+    max_loops: int = 30
+    effective_n_layer: float = None # Effective number of layers considering loops
 
 class GPT(nn.Module):
 
@@ -155,6 +166,8 @@ class GPT(nn.Module):
         self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying
 
         self.concatenate_initial_representation = config.concatenate_initial_representation
+        # Store effective_n_layer for initialization
+        # self.effective_n_layer = config.effective_n_layer # Will be available via self.config.effective_n_layer
 
         if self.concatenate_initial_representation:
             # Adjust adapter input dimension based on whether noise is added
@@ -169,9 +182,10 @@ class GPT(nn.Module):
         # init all weights
         self.apply(self._init_weights)
         # apply special scaled init to the residual projections, per GPT-2 paper
-        for pn, p in self.named_parameters():
-            if pn.endswith('c_proj.weight'):
-                torch.nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * config.n_layer))
+        # for pn, p in self.named_parameters():
+        #     if pn.endswith('c_proj.weight'):
+        #         torch.nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * config.n_layer))
+        # The above loop is removed as requested, c_proj.weight will be handled by _init_weights
 
         # report number of parameters
         print("number of parameters: %.2fM" % (self.get_num_params()/1e6,))
@@ -190,11 +204,31 @@ class GPT(nn.Module):
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module is self.lm_head:
+                # Variance for lm_head: 1 / (5 * n_embd * effective_n_layer)
+                if self.config.effective_n_layer is not None and self.config.effective_n_layer > 0:
+                    variance = 1.0 / (5 * self.config.n_embd * self.config.effective_n_layer)
+                else:
+                    # Fallback if effective_n_layer is not available or invalid (e.g. during from_pretrained without this field)
+                    # Using a small default variance, similar to original 0.02 std for general layers
+                    variance = (0.02**2) / self.config.n_layer # Heuristic, adjust if needed
+                    print(f"Warning: effective_n_layer not available for lm_head init. Using fallback variance {variance}")
+
+                std = math.sqrt(variance)
+                torch.nn.init.normal_(module.weight, mean=0.0, std=std)
+            else:
+                # Variance for other Linear layers: 2 / (5 * n_embd)
+                variance = 2.0 / (5 * self.config.n_embd)
+                std = math.sqrt(variance)
+                torch.nn.init.normal_(module.weight, mean=0.0, std=std)
+            
             if module.bias is not None:
                 torch.nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            # Variance for Embedding layers: 2 / (5 * n_embd)
+            variance = 2.0 / (5 * self.config.n_embd)
+            std = math.sqrt(variance)
+            torch.nn.init.normal_(module.weight, mean=0.0, std=std)
 
     def forward(self, idx, targets=None):
         device = idx.device
@@ -205,172 +239,128 @@ class GPT(nn.Module):
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
-        x = self.transformer.drop(tok_emb + pos_emb)
+        
+        # Scale by sqrt(n_embd) and then apply dropout
+        x = (tok_emb + pos_emb) * math.sqrt(self.config.n_embd)
+        x = self.transformer.drop(x)
 
         loop_representations = [] if self.config.loops_representation else None
         
-        # Determine the range of layers to apply looping
-        looping_enabled = self.config.loop_center_idx != -1 and self.config.max_loops > 1
-        if looping_enabled:
-            start_loop_idx = max(0, self.config.loop_center_idx - self.config.loop_radius)
-            end_loop_idx = min(self.config.n_layer - 1, self.config.loop_center_idx + self.config.loop_radius)
-            print(f"Looping enabled for layers {start_loop_idx} to {end_loop_idx} (Center: {self.config.loop_center_idx}, Radius: {self.config.loop_radius}, Tied: {self.config.tied_looping})")
-        else:
-            start_loop_idx = -1
-            end_loop_idx = -1
+        processed_in_loop_group = [False] * self.config.n_layer
 
-        if looping_enabled and self.config.tied_looping:
-            # --- Tied Looping ---
-            # Process blocks before the loop range
-            for i in range(start_loop_idx):
-                x = self.transformer.h[i](x)
+        current_layer_idx = 0
+        while current_layer_idx < self.config.n_layer:
+            if processed_in_loop_group[current_layer_idx]:
+                current_layer_idx += 1
+                continue
 
-            # Apply tied looping to the designated range
-            x_original = x.clone() # Store input before the entire loop range starts
-            num_loops_to_run = self.config.max_loops
-            current_loop_input = x # Input for the current loop iteration
+            current_group_indices = None
+            is_part_of_defined_group = False
+            num_loops_for_this_group = 1 # Default to 1 pass (no actual looping)
 
-            for loop_idx in range(num_loops_to_run):
-                x_loop = current_loop_input # Start with the input for this loop pass
+            if self.config.loop_groups:
+                for group_config_idx, group in enumerate(self.config.loop_groups):
+                    if group and current_layer_idx == group[0]: # Check if current layer is the start of this group
+                        # Validate group indices
+                        assert all(0 <= idx < self.config.n_layer for idx in group), f"Invalid layer index in group {group}"
+                        assert all(group[i] < group[i+1] for i in range(len(group)-1)), f"Layer indices in a group must be sorted and unique: {group}"
+                        current_group_indices = group
+                        is_part_of_defined_group = True
+
+                        # Determine the number of loops for this specific group
+                        if hasattr(self.config, 'sampled_group_loop_counts') and self.config.sampled_group_loop_counts and group_config_idx < len(self.config.sampled_group_loop_counts):
+                            num_loops_for_this_group = self.config.sampled_group_loop_counts[group_config_idx]
+                        else:
+                            # Fallback to original logic if sampled counts are not available
+                            num_loops_for_this_group = self.config.max_loops # Start with global max_loops
+                            if self.config.loop_counts and group_config_idx < len(self.config.loop_counts):
+                                count_val = self.config.loop_counts[group_config_idx]
+                                if count_val > 0:
+                                    num_loops_for_this_group = count_val
+                                else: # If loop_counts specifies <= 0, it means 1 pass for this group
+                                    num_loops_for_this_group = 1 
+                            elif not self.config.loop_counts: # If loop_counts is None, all groups use max_loops
+                                pass # num_loops_for_this_group is already max_loops
+                            else: # loop_counts is provided, but this group_config_idx is out of bounds
+                                pass 
+                        break 
+            
+            if is_part_of_defined_group: # current_group_indices will be set
+               # print(f"Processing group {current_group_indices} with {num_loops_for_this_group} iteration(s).")
                 
-                # Add noise only on the first iteration if configured
-                if loop_idx == 0 and self.config.loop_noise_scale > 0.0:
-                    noise = torch.randn_like(x_loop) * self.config.loop_noise_scale
-                    if self.concatenate_initial_representation:
-                        # Concatenate noise with the initial input (x_original)
-                        x_loop = torch.cat([x_original, noise], dim=-1)
-                    else:
-                        x_loop = x_loop + noise
-                # Adapt residual connection for subsequent loops
-                elif loop_idx > 0:
-                    if self.concatenate_initial_representation:
-                        x_loop = torch.cat([x_original, x_loop], dim=-1) # Concatenate original input with previous loop's output
-                    else:
-                        x_loop = x_original + x_loop # Add original input to previous loop's output
+                for i in current_group_indices:
+                    processed_in_loop_group[i] = True
 
-                # Adapt dimensionality if concatenating
-                if self.concatenate_initial_representation and (loop_idx > 0 or self.config.loop_noise_scale > 0.0):
-                     # Apply adapter only if concatenation happened (noise or loop > 0)
-                    x_loop = self.initial_representation_adapter(x_loop)
-                elif self.concatenate_initial_representation and loop_idx == 0 and self.config.loop_noise_scale == 0.0:
-                    # Special case: first loop, no noise, concatenation=True. We need to make dim 2*n_embd for the adapter.
-                    # Simplest is to concatenate with zeros or itself. Concatenating with itself.
-                    x_loop = torch.cat([x_loop, x_loop], dim=-1)
-                    x_loop = self.initial_representation_adapter(x_loop)
+                x_original_group_input = x.clone() 
+                current_loop_iteration_input = x_original_group_input
 
+                for loop_iter_idx in range(num_loops_for_this_group):
+                    x_pass_input = current_loop_iteration_input 
 
-                # --- Pass through the block range ---
-                x_loop_intermediate = x_loop
-                for i in range(start_loop_idx, end_loop_idx + 1):
-                    x_loop_intermediate = self.transformer.h[i](x_loop_intermediate)
-                x_new = x_loop_intermediate # Output of the block range for this loop iteration
-                # --- End Pass ---
-
-
-                # Check for automatic loop exit based on convergence
-                if self.config.automatic_loop_exit and loop_idx > 0: # Check from the second loop onwards
-                    # Compare the output of the range (x_new) with the input to the range *in this loop* (x_loop)
-                    diff_norm = torch.norm(x_new - x_loop, p='fro', dim=-1).mean()
-                    if diff_norm < self.config.automatic_loop_exit_threshold:
-                        #print(f"Automatic tied loop exit at loop {loop_idx+1}/{num_loops_to_run} (diff: {diff_norm:.4f})")
-                        current_loop_input = x_new
-                        break # Exit the inner loop
-
-                current_loop_input = x_new # Output becomes input for the next iteration
-
-                # Store representation if enabled
-                if self.config.loops_representation:
-                    loop_representations.append(current_loop_input.clone())
-                
-                # If this was the last iteration, break manually
-                if loop_idx == num_loops_to_run -1:
-                    break
-
-            x = current_loop_input # Final output after looping
-
-            # Process blocks after the loop range
-            for i in range(end_loop_idx + 1, self.config.n_layer):
-                x = self.transformer.h[i](x)
-
-        else:
-             # --- Normal Processing or Untied Looping ---
-            for i, block in enumerate(self.transformer.h):
-                # Check if this block is within the loop range and untied looping is enabled
-                is_looping_block = looping_enabled and start_loop_idx <= i <= end_loop_idx
-
-                if is_looping_block and not self.config.tied_looping:
-                     # --- Untied Looping ---
-                    x_original_block = x.clone() # Store input before this specific block's loop starts
-                    num_loops_to_run = self.config.max_loops
-                    current_loop_input = x # Input for the current loop iteration of this block
-
-                    block_loop_reps = [] # Store reps for this block's loops if needed
-
-                    for loop_idx in range(num_loops_to_run):
-                        x_loop = current_loop_input # Start with the input for this loop pass
-
-                        # Add noise only on the first iteration if configured
-                        if loop_idx == 0 and self.config.loop_noise_scale > 0.0:
-                             noise = torch.randn_like(x_loop) * self.config.loop_noise_scale
-                             if self.concatenate_initial_representation:
-                                 x_loop = torch.cat([x_original_block, noise], dim=-1)
-                             else:
-                                 x_loop = x_loop + noise
-                        # Adapt residual connection for subsequent loops
-                        elif loop_idx > 0:
-                             if self.concatenate_initial_representation:
-                                 x_loop = torch.cat([x_original_block, current_loop_input], dim=-1) # Cat original block input with previous output
-                             else:
-                                 x_loop = x_original_block + current_loop_input # Add original block input to previous output
-
-                        # Adapt dimensionality if concatenating
-                        if self.concatenate_initial_representation and (loop_idx > 0 or self.config.loop_noise_scale > 0.0):
-                            x_loop = self.initial_representation_adapter(x_loop)
-                        elif self.concatenate_initial_representation and loop_idx == 0 and self.config.loop_noise_scale == 0.0:
-                            # See comment in tied looping section
-                            x_loop = torch.cat([x_loop, x_loop], dim=-1)
-                            x_loop = self.initial_representation_adapter(x_loop)
-
-
-                        # Process through the layer
-                        x_new = block(x_loop)
-
-                        # Check for automatic loop exit based on convergence for this block
-                        if self.config.automatic_loop_exit and loop_idx > 0:
-                            diff_norm = torch.norm(x_new - x_loop, p='fro', dim=-1).mean()
-                            if diff_norm < self.config.automatic_loop_exit_threshold:
-                                #print(f"Automatic untied loop exit at layer {i}, loop {loop_idx+1}/{num_loops_to_run} (diff: {diff_norm:.4f})")
-                                current_loop_input = x_new
-                                break # Exit this block's inner loop
+                    # Apply noise ONLY if actually looping (num_loops > 1) and it's the first iteration
+                    if num_loops_for_this_group > 1 and loop_iter_idx == 0 and self.config.loop_noise_scale > 0.0:
+                        # noise = torch.randn_like(x_pass_input) * self.config.loop_noise_scale
+                        # New noise initialization with specified variance
+                        variance_noise = 2.0 / (5 * self.config.n_embd)
+                        std_noise = math.sqrt(variance_noise)
+                        noise = torch.randn_like(x_pass_input) * std_noise * self.config.loop_noise_scale
                         
-                        current_loop_input = x_new # Output becomes input for the next iteration
+                        if self.concatenate_initial_representation:
+                            x_pass_input = torch.cat([x_original_group_input, noise], dim=-1)
+                        else:
+                            x_pass_input = x_pass_input + noise
+                    # Adapt residual for subsequent multi-loop iterations
+                    elif num_loops_for_this_group > 1 and loop_iter_idx > 0:
+                        if self.concatenate_initial_representation:
+                            x_pass_input = torch.cat([x_original_group_input, x_pass_input], dim=-1) # x_pass_input is previous loop's output
+                        else:
+                            x_pass_input = x_original_group_input + x_pass_input # x_pass_input is previous loop's output
+                    
+                    # Adapt dimensionality if concatenation is on
+                    needs_adapter = False
+                    if self.concatenate_initial_representation:
+                        # Case 1: Single effective pass (num_loops_for_this_group == 1). No noise applied above.
+                        # We duplicate input to match adapter's 2*n_embd expectation.
+                        if num_loops_for_this_group == 1:
+                             x_pass_input = torch.cat([x_pass_input, x_pass_input], dim=-1)
+                             needs_adapter = True
+                        # Case 2: Multi-loop (num_loops_for_this_group > 1)
+                        elif num_loops_for_this_group > 1:
+                            if loop_iter_idx == 0 and self.config.loop_noise_scale == 0.0: # First multi-loop iter, no noise
+                                x_pass_input = torch.cat([x_pass_input, x_pass_input], dim=-1)
+                                needs_adapter = True
+                            elif loop_iter_idx > 0 or (loop_iter_idx == 0 and self.config.loop_noise_scale > 0.0): # Subsequent or first-with-noise
+                                needs_adapter = True 
+                    
+                    if needs_adapter:
+                        x_pass_input = self.initial_representation_adapter(x_pass_input)
 
-                        # Store representation for this block's loop if enabled (can become large)
-                        if self.config.loops_representation:
-                           block_loop_reps.append(current_loop_input.clone())
-                        
-                        # If this was the last iteration, break manually
-                        if loop_idx == num_loops_to_run -1:
-                           break
+                    # --- Pass through the layers in the current group ---
+                    x_intermediate_in_group = x_pass_input
+                    for layer_idx_in_group in current_group_indices:
+                        x_intermediate_in_group = self.transformer.h[layer_idx_in_group](x_intermediate_in_group)
+                    x_group_output = x_intermediate_in_group
+                    # --- End Group Pass ---
+                    
+                    current_loop_iteration_input = x_group_output 
 
-
-                    x = current_loop_input # Final output of this block after its loops
-
-                    # Store representation for the whole block if enabled
                     if self.config.loops_representation:
-                        # Decide how to store untied representations, e.g., store the final one or all intermediates
-                        # Storing just the final output of the untied loop for this block
-                         loop_representations.append(x.clone())
-                         # Alternatively, extend with block_loop_reps: loop_representations.extend(block_loop_reps)
-
-                else:
-                    # Normal processing for non-looping blocks or if tied looping is active (handled above)
-                    x = block(x)
-                    # Store representation for non-looping blocks if requested (might be confusing)
-                    # if self.config.loops_representation and not (looping_enabled and self.config.tied_looping):
-                    #    loop_representations.append(x.clone())
-
-
+                        loop_representations.append(current_loop_iteration_input.clone())
+                    
+                    # No automatic exit, loop runs for num_loops_for_this_group iterations
+                    if loop_iter_idx == num_loops_for_this_group - 1:
+                        break
+                
+                x = current_loop_iteration_input # Final output after all iterations for this group
+                current_layer_idx = current_group_indices[-1] + 1
+            
+            else:
+                # --- Normal Processing for a single layer (not in a defined group or loop_groups is None) ---
+                x = self.transformer.h[current_layer_idx](x)
+                if self.config.loops_representation:
+                    loop_representations.append(x.clone())
+                current_layer_idx += 1
+        
         x = self.transformer.ln_f(x)
 
         if targets is not None:

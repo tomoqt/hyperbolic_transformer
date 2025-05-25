@@ -185,8 +185,11 @@ backend = 'nccl' # 'nccl', 'gloo', etc.
 device = 'cuda' # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
 dtype = 'float16'#'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
 compile = True # use PyTorch 2.0 to compile the model to be faster
+# Looping specific configs - already in model.GPTConfig, but listed here for configurator.py
+# loop_groups = None # Will be defaulted below if init_from == 'scratch' and not set
+# loop_counts = None
 # -----------------------------------------------------------------------------
-config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
+config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str, type(None)))] # Added type(None) to catch loop_groups/counts if they are initially None
 exec(open('configurator.py').read()) # overrides from command line or config file
 
 # Set output directory based on model type
@@ -270,8 +273,23 @@ if os.path.exists(meta_path):
     print(f"found vocab_size = {meta_vocab_size} (inside {meta_path})")
 
 # model init
-model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
-                  bias=bias, vocab_size=None, dropout=dropout) # start with model_args from command line
+if use_baseline_model:
+    model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
+                  bias=bias, vocab_size=None, dropout=dropout
+                  )
+else:
+    model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
+                    bias=bias, vocab_size=None, dropout=dropout,
+                    # Include looping parameters, which might be overridden by command line via configurator
+                    max_loops=globals().get('max_loops', 30), # Ensure it's fetched if set by configurator
+                    loop_groups=globals().get('loop_groups', None),
+                    loop_counts=globals().get('loop_counts', None),
+                    loop_noise_scale=globals().get('loop_noise_scale', 0.0),
+                    concatenate_initial_representation=globals().get('concatenate_initial_representation', True),
+                    loops_representation=globals().get('loops_representation', False),
+                    effective_n_layer=None # Placeholder, will be calculated below
+                    )
+
 if init_from == 'scratch':
     # init a new model from scratch
     print("Initializing a new model from scratch")
@@ -279,6 +297,38 @@ if init_from == 'scratch':
     if meta_vocab_size is None:
         print("defaulting to vocab_size of GPT-2 to 50304 (50257 rounded up for efficiency)")
     model_args['vocab_size'] = meta_vocab_size if meta_vocab_size is not None else 50304
+    # Set default loop_groups if not provided and initializing from scratch
+    if model_args.get('loop_groups') is None and not use_baseline_model:    
+        if n_layer % 2 == 1: # Odd number of layers
+            default_group = [[n_layer // 2]]
+        else: # Even number of layers
+            default_group = [[(n_layer // 2) - 1]]
+        print(f"Defaulting loop_groups to: {default_group} for {n_layer} layers.")
+        model_args['loop_groups'] = default_group
+        # If loop_groups was defaulted, and loop_counts is None, it will naturally use max_loops for this default group.
+
+    # Calculate effective_n_layer
+    if not use_baseline_model:
+        current_n_layer = model_args['n_layer']
+        current_loop_groups = model_args.get('loop_groups')
+        current_max_loops = model_args.get('max_loops', 30) # Default to 30 if not found
+
+        effective_n_layer_val = float(current_n_layer)
+        if current_loop_groups and current_max_loops > 1: # Only add if there are groups and actual looping possibility
+            # Expected number of loops for a group when sampling uniformly from 1 to max_loops
+            # is (1 + max_loops) / 2.
+            # The additional iterations beyond the first pass are ((1 + max_loops) / 2) - 1.
+            expected_additional_loops_per_group = ((1 + float(current_max_loops)) / 2.0) - 1.0
+            if expected_additional_loops_per_group > 0: # only add if it's positive
+                for group in current_loop_groups:
+                    effective_n_layer_val += len(group) * expected_additional_loops_per_group
+        
+        model_args['effective_n_layer'] = effective_n_layer_val
+        print(f"Calculated effective_n_layer: {effective_n_layer_val}")
+    else:
+        model_args['effective_n_layer'] = float(model_args['n_layer']) # For baseline, it's just n_layer
+        print(f"Using n_layer as effective_n_layer for baseline model: {model_args['effective_n_layer']}")
+
     gptconf = GPTConfig(**model_args)
     model = GPT(gptconf)
 elif init_from == 'resume':
@@ -292,7 +342,17 @@ elif init_from == 'resume':
     for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size']:
         model_args[k] = checkpoint_model_args[k]
     # create the model
-    gptconf = GPTConfig(**model_args)
+    # Update model_args from checkpoint, but ensure effective_n_layer is also handled or re-calculated if necessary
+    # For simplicity, if resuming, we might rely on effective_n_layer being in checkpoint_model_args or set it to n_layer
+    # if not present, as the original training run might not have had this concept.
+    if 'effective_n_layer' not in checkpoint_model_args:
+        print("Warning: 'effective_n_layer' not found in checkpoint_model_args. Defaulting to n_layer.")
+        checkpoint_model_args['effective_n_layer'] = float(checkpoint_model_args['n_layer'])
+        
+    gptconf = GPTConfig(**model_args) # model_args already updated with checkpoint values for core params
+    # but ensure effective_n_layer from checkpoint_model_args is used if resuming
+    gptconf.effective_n_layer = checkpoint_model_args['effective_n_layer'] 
+
     model = GPT(gptconf)
     state_dict = checkpoint['model']
     # fix the keys of the state dictionary :(
@@ -493,6 +553,25 @@ while True:
                 torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))
     if iter_num == 0 and eval_only:
         break
+
+    # --- Start: Modified group-specific loop sampling logic ---
+    if not use_baseline_model and hasattr(raw_model.config, 'loop_groups') and raw_model.config.loop_groups:
+        raw_model.config.sampled_group_loop_counts = []
+        # When sampling is active, the number of loops for each group is sampled independently
+        # up to raw_model.config.max_loops. The config.loop_counts array from the configuration
+        # is NOT used to determine the sampling range here; config.loop_counts is intended for
+        # non-sampling scenarios (e.g., baseline model or when no loop_groups are defined).
+        for _ in raw_model.config.loop_groups: # Iterate once per group to sample for each
+            max_loops_for_sampling_this_group = raw_model.config.max_loops
+            
+            if max_loops_for_sampling_this_group > 0:
+                # Sample from 1 to max_loops_for_sampling_this_group (inclusive)
+                sampled_loops = torch.randint(low=1, high=max_loops_for_sampling_this_group + 1, size=(1,)).item()
+            else:
+                # If max_loops is 0 or negative in the config, it implies a single pass (1 loop)
+                sampled_loops = 1
+            raw_model.config.sampled_group_loop_counts.append(sampled_loops)
+    # --- End: Modified group-specific loop sampling logic ---
 
     # forward backward update, with optional gradient accumulation to simulate larger batch size
     # and using the GradScaler if data type is float16
