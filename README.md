@@ -47,7 +47,7 @@ python data/shakespeare_char/prepare.py
 
 This creates `train.bin` and `val.bin` files with character-level tokenization.
 
-### OpenWebText Dataset (Full Scale Training)
+### Fineweb Dataset (Full Scale Training)
 
 For more extensive training, prepare the OpenWebText dataset:
 
