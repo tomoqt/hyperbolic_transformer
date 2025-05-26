@@ -193,7 +193,7 @@ config_keys = [k for k,v in globals().items() if not k.startswith('_') and isins
 exec(open('configurator.py').read()) # overrides from command line or config file
 
 # Set output directory based on model type
-out_dir = 'out_baseline' if use_baseline_model else 'out_hyperbolic'
+out_dir = 'out_baseline' if use_baseline_model else 'out_looped'
 
 config = {k: globals()[k] for k in config_keys} # will be useful for logging
 # -----------------------------------------------------------------------------
@@ -629,7 +629,7 @@ while True:
                     'best_val_loss': best_val_loss,
                     'config': config,
                 }
-                model_type = "baseline" if use_baseline_model else "hyperbolic"
+                model_type = "baseline" if use_baseline_model else "looped"
                 print(f"saving {model_type} model checkpoint to {out_dir}")
                 torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))
     if iter_num == 0 and eval_only:
