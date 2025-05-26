@@ -6,7 +6,7 @@ This project explores iterating transformer blocks multiple times within a singl
 
 Standard transformer models process input through a fixed sequence of layers. This project investigates an alternative approach where specific groups of blocks within the transformer architecture can be applied iteratively. The core idea is to explore whether repeatedly applying the transformations of certain layer groups can lead to deeper processing, potentially improving model performance or efficiency under certain conditions.
 
-This concept is related to recurrent mechanisms and adaptive computation, where the model might dynamically adjust the amount of processing applied.
+This concept is related to recurrent mechanisms and adaptive computation, where the model might dynamically adjust the amount of processing applied. The work in this repo is mainly inspired by https://arxiv.org/pdf/2502.05171
 
 ## Project Goal
 
@@ -52,16 +52,22 @@ This creates `train.bin` and `val.bin` files with character-level tokenization.
 For more extensive training, prepare the OpenWebText dataset:
 
 ```sh
-python data/openwebtext/prepare.py
+python data/fineweb/prepare.py
 ```
 
 This downloads and tokenizes the OpenWebText dataset, creating `train.bin` and `val.bin` files with GPT-2 BPE tokenization.
 
 Both datasets are prepared to be used with the training scripts. For transformer block looping experiments, we can use these datasets to compare performance against baseline transformer architectures.
 
-## Getting Started
+to train, simply run:
 
-[Installation and usage instructions will be added as the project develops]
+python train.py config/train_fineweb.py --compile=False 
+
+you can also run the baseline by simply doing
+
+python train.py config/train_fineweb.py --use_model_baseline=True
+
+(this can also be compiled)
 
 ## Acknowledgements
 
