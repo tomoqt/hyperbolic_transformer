@@ -277,6 +277,9 @@ if use_baseline_model:
     model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
                   bias=bias, vocab_size=None, dropout=dropout
                   )
+    # For baseline model, effective_n_layer is not a concept, so ensure it's not in model_args
+    # if it was somehow added before (e.g. from a previous non-baseline configuration attempt)
+    model_args.pop('effective_n_layer', None) 
 else:
     model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
                     bias=bias, vocab_size=None, dropout=dropout,
@@ -326,8 +329,9 @@ if init_from == 'scratch':
         model_args['effective_n_layer'] = effective_n_layer_val
         print(f"Calculated effective_n_layer: {effective_n_layer_val}")
     else:
-        model_args['effective_n_layer'] = float(model_args['n_layer']) # For baseline, it's just n_layer
-        print(f"Using n_layer as effective_n_layer for baseline model: {model_args['effective_n_layer']}")
+        # For baseline model, effective_n_layer is not added to model_args.
+        # model_args['effective_n_layer'] = float(model_args['n_layer']) # This line was causing the issue
+        print(f"Baseline model using n_layer: {model_args['n_layer']}. 'effective_n_layer' not passed to GPTConfig.")
 
     gptconf = GPTConfig(**model_args)
     model = GPT(gptconf)
@@ -341,17 +345,40 @@ elif init_from == 'resume':
     # the rest of the attributes (e.g. dropout) can stay as desired from command line
     for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size']:
         model_args[k] = checkpoint_model_args[k]
-    # create the model
-    # Update model_args from checkpoint, but ensure effective_n_layer is also handled or re-calculated if necessary
-    # For simplicity, if resuming, we might rely on effective_n_layer being in checkpoint_model_args or set it to n_layer
-    # if not present, as the original training run might not have had this concept.
-    if 'effective_n_layer' not in checkpoint_model_args:
-        print("Warning: 'effective_n_layer' not found in checkpoint_model_args. Defaulting to n_layer.")
-        checkpoint_model_args['effective_n_layer'] = float(checkpoint_model_args['n_layer'])
-        
-    gptconf = GPTConfig(**model_args) # model_args already updated with checkpoint values for core params
-    # but ensure effective_n_layer from checkpoint_model_args is used if resuming
-    gptconf.effective_n_layer = checkpoint_model_args['effective_n_layer'] 
+    
+    # Create the model, ensuring effective_n_layer is handled correctly for resumes
+    current_model_args_for_resume = model_args.copy() # Start with current args
+    # Override with checkpoint values for core params
+    for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size']:
+        current_model_args_for_resume[k] = checkpoint_model_args[k]
+
+    if use_baseline_model:
+        # If resuming a baseline model, ensure effective_n_layer is NOT passed
+        current_model_args_for_resume.pop('effective_n_layer', None)
+        gptconf = GPTConfig(**current_model_args_for_resume)
+    else:
+        # If resuming a looping model, ensure effective_n_layer IS present
+        if 'effective_n_layer' not in checkpoint_model_args:
+            print("Warning: 'effective_n_layer' not found in checkpoint_model_args for looping model. Defaulting to n_layer.")
+            # Calculate it based on checkpoint's looping parameters if possible, or n_layer
+            # This part might need more sophisticated logic if looping params themselves can change on resume
+            # For now, let's try to use the checkpoint's n_layer as a fallback.
+            resumed_n_layer = checkpoint_model_args.get('n_layer', n_layer)
+            # Attempt to re-calculate if looping params are in checkpoint_model_args
+            resumed_loop_groups = checkpoint_model_args.get('loop_groups', model_args.get('loop_groups'))
+            resumed_max_loops = checkpoint_model_args.get('max_loops', model_args.get('max_loops', 30))
+            
+            effective_n_layer_val_resume = float(resumed_n_layer)
+            if resumed_loop_groups and resumed_max_loops > 1:
+                expected_additional_loops_per_group_resume = ((1 + float(resumed_max_loops)) / 2.0) - 1.0
+                if expected_additional_loops_per_group_resume > 0:
+                    for group in resumed_loop_groups:
+                        effective_n_layer_val_resume += len(group) * expected_additional_loops_per_group_resume
+            checkpoint_model_args['effective_n_layer'] = effective_n_layer_val_resume
+            print(f"Re-calculated effective_n_layer for resume: {checkpoint_model_args['effective_n_layer']}")
+            
+        current_model_args_for_resume['effective_n_layer'] = checkpoint_model_args['effective_n_layer']
+        gptconf = GPTConfig(**current_model_args_for_resume)
 
     model = GPT(gptconf)
     state_dict = checkpoint['model']
@@ -549,27 +576,27 @@ while True:
 
     # evaluate the loss on train/val sets and write checkpoints
     if iter_num % eval_interval == 0 and master_process:
+        # Prepare a dictionary to hold all metrics for this evaluation cycle
+        cycle_log_metrics = {}
+
         losses = estimate_loss()
         print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f} (sampled loops)")
-        if wandb_log:
-            log_dict = {
-                "iter": iter_num,
-                "train/loss_sampled_loops": losses['train'],
-                "val/loss_sampled_loops": losses['val'],
-                "lr": lr,
-                "mfu": running_mfu*100, # convert to percentage
-            }
-            wandb.log(log_dict)
-
+        
+        # Populate main metrics for logging
+        cycle_log_metrics["iter"] = iter_num
+        cycle_log_metrics["train/loss_sampled_loops"] = losses['train']
+        cycle_log_metrics["val/loss_sampled_loops"] = losses['val']
+        cycle_log_metrics["lr"] = lr # lr is available in this scope
+        cycle_log_metrics["mfu"] = running_mfu*100 # convert to percentage
+        
         # Additional evaluation for fixed loop counts
         if not use_baseline_model and hasattr(raw_model.config, 'loop_groups') and raw_model.config.loop_groups:
             fixed_loop_eval_counts = [1, 5, 15, 30]
             # Calculate eval_iters for ~20 examples. batch_size is available in global scope.
-            # Ensure batch_size is not zero to avoid division by zero error.
             if batch_size > 0:
                 fixed_loop_custom_iters = math.ceil(20 / batch_size)
             else:
-                fixed_loop_custom_iters = 1 # Default to 1 iter if batch_size is 0, though unlikely
+                fixed_loop_custom_iters = 1 # Default to 1 iter if batch_size is 0
             
             print(f"Running fixed loop evaluations for {fixed_loop_custom_iters} iterations (approx 20 examples each).")
             for fixed_loops in fixed_loop_eval_counts:
@@ -580,12 +607,15 @@ while True:
 
                 fixed_losses = estimate_loss(fixed_loops_override=fixed_loops, custom_eval_iters=fixed_loop_custom_iters)
                 print(f"  step {iter_num}: val loss with {fixed_loops} fixed loops: {fixed_losses['val']:.4f}")
-                if wandb_log:
-                    wandb.log({
-                        f"val/loss_fixed_{fixed_loops}_loops": fixed_losses['val'],
-                        f"train/loss_fixed_{fixed_loops}_loops": fixed_losses['train'], # Also log train loss for completeness
-                        "iter": iter_num
-                    })
+                
+                # Populate fixed-loop metrics into the same dictionary
+                cycle_log_metrics[f"val/loss_fixed_{fixed_loops}_loops"] = fixed_losses['val']
+                cycle_log_metrics[f"train/loss_fixed_{fixed_loops}_loops"] = fixed_losses['train']
+                # "iter" is already in cycle_log_metrics from the main eval section
+
+        # Single log call for the entire cycle if wandb_log is enabled
+        if wandb_log and cycle_log_metrics:
+            wandb.log(cycle_log_metrics)
 
         if losses['val'] < best_val_loss or always_save_checkpoint:
             best_val_loss = losses['val'] # Note: best_val_loss is still based on the main sampled evaluation
