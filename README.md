@@ -1,30 +1,37 @@
-
-
 # Transformer Block Looping Experiment
 
 This project explores iterating transformer blocks multiple times within a single forward pass, based on [nanoGPT](https://github.com/karpathy/nanoGPT) by Andrej Karpathy.
 
 ## Motivation
 
-Standard transformer models process input through a fixed sequence of layers. This project investigates an alternative approach where specific blocks or ranges of blocks within the transformer architecture can be applied iteratively. The core idea is to explore whether repeatedly applying the transformations of certain layers can lead to deeper processing, potentially improving model performance or efficiency under certain conditions.
+Standard transformer models process input through a fixed sequence of layers. This project investigates an alternative approach where specific groups of blocks within the transformer architecture can be applied iteratively. The core idea is to explore whether repeatedly applying the transformations of certain layer groups can lead to deeper processing, potentially improving model performance or efficiency under certain conditions.
 
-This concept is related to recurrent mechanisms and adaptive computation, where the model might dynamically adjust the amount of processing applied based on the input or intermediate representations.
+This concept is related to recurrent mechanisms and adaptive computation, where the model might dynamically adjust the amount of processing applied.
 
 ## Project Goal
 
-This project aims to implement and evaluate transformers capable of looping specific blocks. Key aspects include:
-*   **Flexible Looping:** Allowing configuration of which block(s) to loop (`loop_center_idx`, `loop_radius`).
-*   **Looping Strategies:** Implementing both "tied" looping (iterating the entire range as one unit) and "untied" looping (iterating each block within the range independently) (`tied_looping`).
-*   **Residual Connections:** Exploring different ways to handle the residual stream during loops, such as standard addition or concatenating the initial pre-loop representation and adapting it (`concatenate_initial_representation`).
-*   **Noise Injection:** Optionally adding noise during the first loop iteration (`loop_noise_scale`).
-*   **Adaptive Computation:** Implementing an automatic exit mechanism to stop looping based on representation convergence (`automatic_loop_exit`, `automatic_loop_exit_threshold`).
-*   **Analysis:** Providing tools to track representations across loops for analysis (`loops_representation`).
+This project aims to implement and evaluate transformers capable of looping specific groups of blocks. Key aspects include:
+*   **Flexible Group Looping:** Allowing configuration of which groups of layer indices to loop together (e.g., `loop_groups: [[0,1],[3]]` would loop layers 0-1 as one group, and layer 3 as another).
+*   **Loop Count Control:**
+    *   Specifying exact loop counts per group (`loop_counts`).
+    *   Setting a maximum number of loops (`max_loops`) which can also be used for sampling loop counts during training.
+*   **Input Handling for Loops:**
+    *   Optionally concatenating the initial pre-loop group representation with the previous iteration's output (or noise for the first iteration) and adapting it back to the required dimension (`concatenate_initial_representation`).
+    *   Alternatively, adding the initial pre-loop group representation to the previous iteration's output.
+*   **Noise Injection:** Optionally adding scaled Gaussian noise during the first loop iteration of a group if it's looped multiple times (`loop_noise_scale`). The variance of this noise is based on `2 / (5 * n_embd)`.
+*   **Specialized Initialization:**
+    *   Scaling the sum of token and position embeddings by `sqrt(n_embd)`.
+    *   Initializing `nn.Linear` (excluding the final LM head) and `nn.Embedding` weights from a Normal distribution with variance `2 / (5 * n_embd)`.
+    *   Initializing the final `lm_head` weights from a Normal distribution with variance `1 / (5 * n_embd * effective_n_layer)`, where `effective_n_layer` accounts for the expected number of layer passes due to looping.
+*   **Analysis & Evaluation:**
+    *   Providing tools to track representations across loops for analysis (`loops_representation`).
+    *   Evaluating the model not only with sampled loop counts but also with fixed loop counts (e.g., 1, 5, 15, 30 loops) during validation to understand performance sensitivity to loop depth.
 
 The goal is to understand the impact of these looping mechanisms on training dynamics and model capabilities compared to standard transformer architectures.
 
 ## Implementation
 
-We use the minimal and efficient nanoGPT implementation as our foundation, modifying the `GPT` model in `model.py` to incorporate the looping functionality described above. The core changes are within the `forward` method of the `GPT` class and the corresponding additions to the `GPTConfig` dataclass.
+We use the minimal and efficient nanoGPT implementation as our foundation, modifying the `GPT` model in `model.py` to incorporate the looping functionality described above. The core changes are within the `forward` method of the `GPT` class and the corresponding additions to the `GPTConfig` dataclass. The `train.py` script handles the calculation of `effective_n_layer`, the sampling of loop counts during training, and the multi-faceted evaluation including fixed loop counts.
 
 ## Dataset Preparation
 

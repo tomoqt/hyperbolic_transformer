@@ -86,7 +86,7 @@ class MLP(nn.Module):
 
     def forward(self, x):
         x = self.c_fc(x)
-        x = self.SiLU(x)
+        x = self.silu(x)
         x = self.c_proj(x)
         x = self.dropout(x)
         return x
@@ -142,6 +142,8 @@ class GPTConfig:
     loops_representation: bool = False # Flag to track and return representations across loops (for debugging/analysis)
     max_loops: int = 30
     effective_n_layer: float = None # Effective number of layers considering loops
+    automatic_loop_exit: bool = False # Flag to automatically exit loops based on convergence of representations
+    automatic_loop_exit_threshold: float = 0.01 # Threshold for automatic loop exit
 
 class GPT(nn.Module):
 
@@ -291,11 +293,12 @@ class GPT(nn.Module):
                 for i in current_group_indices:
                     processed_in_loop_group[i] = True
 
-                x_original_group_input = x.clone() 
+                x_original_group_input = x.clone()
                 current_loop_iteration_input = x_original_group_input
+                prev_diff_norm_for_group = None # For automatic loop exit calculation
 
                 for loop_iter_idx in range(num_loops_for_this_group):
-                    x_pass_input = current_loop_iteration_input 
+                    x_pass_input = current_loop_iteration_input
 
                     # Apply noise ONLY if actually looping (num_loops > 1) and it's the first iteration
                     if num_loops_for_this_group > 1 and loop_iter_idx == 0 and self.config.loop_noise_scale > 0.0:
@@ -336,22 +339,39 @@ class GPT(nn.Module):
                         x_pass_input = self.initial_representation_adapter(x_pass_input)
 
                     # --- Pass through the layers in the current group ---
+                    x_input_to_group_layers_this_iter = x_pass_input.clone() # For diff calculation
                     x_intermediate_in_group = x_pass_input
                     for layer_idx_in_group in current_group_indices:
                         x_intermediate_in_group = self.transformer.h[layer_idx_in_group](x_intermediate_in_group)
-                    x_group_output = x_intermediate_in_group
+                    x_group_output_this_iter = x_intermediate_in_group
                     # --- End Group Pass ---
                     
-                    current_loop_iteration_input = x_group_output 
+                    current_loop_iteration_input = x_group_output_this_iter # Update before potential break
 
-                    if self.config.loops_representation:
+                    if self.config.loops_representation: # Store representation before potential early exit
                         loop_representations.append(current_loop_iteration_input.clone())
+
+                    # Automatic loop exit logic
+                    if self.config.automatic_loop_exit and num_loops_for_this_group > 1:
+                        # Calculate L2 norm of (output - input) for the current group pass,
+                        # then mean over sequence and batch for a scalar.
+                        current_iter_change_norm_tensor = torch.norm(x_group_output_this_iter - x_input_to_group_layers_this_iter, p=2, dim=-1) # (B, T)
+                        current_iter_change_norm = current_iter_change_norm_tensor.mean(dim=-1) # Scalar
+
+                        if prev_diff_norm_for_group is not None and loop_iter_idx > 0: # Need at least two norms to compare
+                            diff_of_diffs = torch.abs(current_iter_change_norm - prev_diff_norm_for_group)
+                            if diff_of_diffs < self.config.automatic_loop_exit_threshold:
+                                # print(f"DEBUG: Auto exiting loop for group {current_group_indices} at iter {loop_iter_idx+1}/{num_loops_for_this_group}. Diff of diffs: {diff_of_diffs.item()}")
+                                break # Exit this group's loop
+                        
+                        prev_diff_norm_for_group = current_iter_change_norm
                     
                     # No automatic exit, loop runs for num_loops_for_this_group iterations
-                    if loop_iter_idx == num_loops_for_this_group - 1:
-                        break
+                    # The standard for loop handles exit if not broken early.
+                    # if loop_iter_idx == num_loops_for_this_group - 1:
+                    #    break # This is redundant due to the for loop's natural termination
                 
-                x = current_loop_iteration_input # Final output after all iterations for this group
+                x = current_loop_iteration_input # Final output after all iterations (or early exit) for this group
                 current_layer_idx = current_group_indices[-1] + 1
             
             else:

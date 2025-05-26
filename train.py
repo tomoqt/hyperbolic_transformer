@@ -466,17 +466,42 @@ if ddp:
 
 # helps estimate an arbitrarily accurate loss over either split using many batches
 @torch.no_grad()
-def estimate_loss():
+def estimate_loss(fixed_loops_override=None, custom_eval_iters=None):
     out = {}
     model.eval()
-    for split in ['train', 'val']:
-        losses = torch.zeros(eval_iters)
-        for k in range(eval_iters):
-            X, Y = get_batch(split)
-            with ctx:
-                logits, loss = model(X, Y)
-            losses[k] = loss.item()
-        out[split] = losses.mean()
+    
+    current_model_config = raw_model.config # Assuming raw_model is accessible
+    original_sampled_group_loop_counts = None
+    is_looping_model = not use_baseline_model and hasattr(current_model_config, 'loop_groups') and current_model_config.loop_groups
+    
+    if fixed_loops_override is not None and is_looping_model:
+        if hasattr(current_model_config, 'sampled_group_loop_counts'):
+            original_sampled_group_loop_counts = current_model_config.sampled_group_loop_counts
+        
+        # Create new loop counts: all groups get the fixed_loops_override
+        num_groups = len(current_model_config.loop_groups)
+        current_model_config.sampled_group_loop_counts = [fixed_loops_override] * num_groups
+        # print(f"DEBUG: Overriding loops for estimate_loss. Groups: {current_model_config.loop_groups}, Fixed count: {fixed_loops_override}, Set counts: {current_model_config.sampled_group_loop_counts}")
+
+    iters_to_run = custom_eval_iters if custom_eval_iters is not None else eval_iters
+    try:
+        for split in ['train', 'val']:
+            losses = torch.zeros(iters_to_run)
+            for k in range(iters_to_run):
+                X, Y = get_batch(split)
+                with ctx:
+                    # When model is DDP, accessing config needs .module
+                    # However, raw_model should be the unwrapped one.
+                    # The forward pass itself handles config.sampled_group_loop_counts
+                    logits, loss = model(X, Y) 
+                losses[k] = loss.item()
+            out[split] = losses.mean()
+    finally:
+        if fixed_loops_override is not None and is_looping_model:
+            # Restore original loop counts
+            current_model_config.sampled_group_loop_counts = original_sampled_group_loop_counts
+            # print(f"DEBUG: Restored original loop counts: {current_model_config.sampled_group_loop_counts}")
+
     model.train()
     return out
 
@@ -525,19 +550,45 @@ while True:
     # evaluate the loss on train/val sets and write checkpoints
     if iter_num % eval_interval == 0 and master_process:
         losses = estimate_loss()
-        print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+        print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f} (sampled loops)")
         if wandb_log:
             log_dict = {
                 "iter": iter_num,
-                "train/loss": losses['train'],
-                "val/loss": losses['val'],
+                "train/loss_sampled_loops": losses['train'],
+                "val/loss_sampled_loops": losses['val'],
                 "lr": lr,
                 "mfu": running_mfu*100, # convert to percentage
             }
-            
             wandb.log(log_dict)
+
+        # Additional evaluation for fixed loop counts
+        if not use_baseline_model and hasattr(raw_model.config, 'loop_groups') and raw_model.config.loop_groups:
+            fixed_loop_eval_counts = [1, 5, 15, 30]
+            # Calculate eval_iters for ~20 examples. batch_size is available in global scope.
+            # Ensure batch_size is not zero to avoid division by zero error.
+            if batch_size > 0:
+                fixed_loop_custom_iters = math.ceil(20 / batch_size)
+            else:
+                fixed_loop_custom_iters = 1 # Default to 1 iter if batch_size is 0, though unlikely
+            
+            print(f"Running fixed loop evaluations for {fixed_loop_custom_iters} iterations (approx 20 examples each).")
+            for fixed_loops in fixed_loop_eval_counts:
+                # Ensure fixed_loops does not exceed model's max_loops for sanity
+                if fixed_loops > raw_model.config.max_loops:
+                    print(f"Skipping fixed loop count {fixed_loops} as it exceeds model.config.max_loops ({raw_model.config.max_loops}).")
+                    continue
+
+                fixed_losses = estimate_loss(fixed_loops_override=fixed_loops, custom_eval_iters=fixed_loop_custom_iters)
+                print(f"  step {iter_num}: val loss with {fixed_loops} fixed loops: {fixed_losses['val']:.4f}")
+                if wandb_log:
+                    wandb.log({
+                        f"val/loss_fixed_{fixed_loops}_loops": fixed_losses['val'],
+                        f"train/loss_fixed_{fixed_loops}_loops": fixed_losses['train'], # Also log train loss for completeness
+                        "iter": iter_num
+                    })
+
         if losses['val'] < best_val_loss or always_save_checkpoint:
-            best_val_loss = losses['val']
+            best_val_loss = losses['val'] # Note: best_val_loss is still based on the main sampled evaluation
             if iter_num > 0:
                 checkpoint = {
                     'model': raw_model.state_dict(),
