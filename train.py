@@ -501,22 +501,50 @@ if ddp:
 
 # helps estimate an arbitrarily accurate loss over either split using many batches
 @torch.no_grad()
-def estimate_loss(fixed_loops_override=None, custom_eval_iters=None):
+def estimate_loss(fixed_loops_override=None, custom_eval_iters=None,
+                  eval_auto_exit: bool = False, eval_auto_exit_threshold: float | None = None):
     out = {}
     model.eval()
-    
-    current_model_config = raw_model.config # Assuming raw_model is accessible
-    original_sampled_group_loop_counts = None
+
+    current_model_config = raw_model.config
     is_looping_model = not use_baseline_model and hasattr(current_model_config, 'loop_groups') and current_model_config.loop_groups
-    
-    if fixed_loops_override is not None and is_looping_model:
-        if hasattr(current_model_config, 'sampled_group_loop_counts'):
-            original_sampled_group_loop_counts = current_model_config.sampled_group_loop_counts
+
+    # --- Store original states to be restored ---
+    original_sampled_group_loop_counts = None
+    if is_looping_model and hasattr(current_model_config, 'sampled_group_loop_counts'):
+        if current_model_config.sampled_group_loop_counts is not None:
+            original_sampled_group_loop_counts = list(current_model_config.sampled_group_loop_counts)
+        else:
+            original_sampled_group_loop_counts = None
+
+    original_auto_exit_enabled = None
+    original_auto_exit_threshold = None
+    if is_looping_model: # Only relevant for looping models
+        original_auto_exit_enabled = getattr(current_model_config, 'automatic_loop_exit', False)
+        original_auto_exit_threshold = getattr(current_model_config, 'automatic_loop_exit_threshold', 0.01)
+
+    # --- Apply temporary settings for this evaluation run ---
+    if eval_auto_exit and is_looping_model:
+        current_model_config.automatic_loop_exit = True
+        if eval_auto_exit_threshold is not None:
+            current_model_config.automatic_loop_exit_threshold = eval_auto_exit_threshold
         
-        # Create new loop counts: all groups get the fixed_loops_override
-        num_groups = len(current_model_config.loop_groups)
-        current_model_config.sampled_group_loop_counts = [fixed_loops_override] * num_groups
-        # print(f"DEBUG: Overriding loops for estimate_loss. Groups: {current_model_config.loop_groups}, Fixed count: {fixed_loops_override}, Set counts: {current_model_config.sampled_group_loop_counts}")
+        # If fixed_loops_override is also set, it means we want auto-exit on a fixed number of max loops.
+        if fixed_loops_override is not None:
+            # print("Warning: eval_auto_exit is True and fixed_loops_override is set. Auto-exit will apply to the fixed number of loops.")
+            if hasattr(current_model_config, 'loop_groups') and current_model_config.loop_groups: # Ensure loop_groups exists
+                num_groups = len(current_model_config.loop_groups)
+                current_model_config.sampled_group_loop_counts = [fixed_loops_override] * num_groups
+            else: # Should not happen if is_looping_model is true, but as a safeguard
+                fixed_loops_override = None # Cannot apply if no groups
+
+    elif fixed_loops_override is not None and is_looping_model: # `elif` ensures this is exclusive if eval_auto_exit is False
+        if hasattr(current_model_config, 'loop_groups') and current_model_config.loop_groups: # Ensure loop_groups exists
+            num_groups = len(current_model_config.loop_groups)
+            current_model_config.sampled_group_loop_counts = [fixed_loops_override] * num_groups
+        else: # Should not happen if is_looping_model is true, but as a safeguard
+            fixed_loops_override = None # Cannot apply if no groups
+
 
     iters_to_run = custom_eval_iters if custom_eval_iters is not None else eval_iters
     try:
@@ -525,17 +553,23 @@ def estimate_loss(fixed_loops_override=None, custom_eval_iters=None):
             for k in range(iters_to_run):
                 X, Y = get_batch(split)
                 with ctx:
-                    # When model is DDP, accessing config needs .module
-                    # However, raw_model should be the unwrapped one.
-                    # The forward pass itself handles config.sampled_group_loop_counts
-                    logits, loss = model(X, Y) 
+                    # The forward pass will use the temporarily set config values
+                    logits, loss = model(X, Y)
                 losses[k] = loss.item()
             out[split] = losses.mean()
     finally:
-        if fixed_loops_override is not None and is_looping_model:
-            # Restore original loop counts
-            current_model_config.sampled_group_loop_counts = original_sampled_group_loop_counts
-            # print(f"DEBUG: Restored original loop counts: {current_model_config.sampled_group_loop_counts}")
+        # --- Restore original states ---
+        if is_looping_model:
+            if eval_auto_exit: # Restore auto-exit settings if they were modified
+                if original_auto_exit_enabled is not None:
+                    current_model_config.automatic_loop_exit = original_auto_exit_enabled
+                if original_auto_exit_threshold is not None:
+                    current_model_config.automatic_loop_exit_threshold = original_auto_exit_threshold
+            
+            # Restore sampled_group_loop_counts if it was modified by fixed_loops_override
+            # This covers cases where fixed_loops_override was set directly or in conjunction with eval_auto_exit.
+            if fixed_loops_override is not None and hasattr(current_model_config, 'loop_groups') and current_model_config.loop_groups:
+                 current_model_config.sampled_group_loop_counts = original_sampled_group_loop_counts
 
     model.train()
     return out
@@ -620,6 +654,23 @@ while True:
                 cycle_log_metrics[f"val/loss_fixed_{fixed_loops}_loops"] = fixed_losses['val']
                 cycle_log_metrics[f"train/loss_fixed_{fixed_loops}_loops"] = fixed_losses['train']
                 # "iter" is already in cycle_log_metrics from the main eval section
+
+            # --- New: Automatic loop exit evaluation ---
+            auto_exit_threshold_eval = 1e-3
+            print(f"Running automatic loop exit evaluation with threshold {auto_exit_threshold_eval} for {fixed_loop_custom_iters} iterations.")
+            auto_exit_losses = estimate_loss(
+                eval_auto_exit=True, 
+                eval_auto_exit_threshold=auto_exit_threshold_eval,
+                custom_eval_iters=fixed_loop_custom_iters,
+                # We can also specify a fixed_loops_override here to cap the max loops for auto-exit evaluation
+                # For example, raw_model.config.max_loops or a specific number.
+                # If None, it will use the model's current max_loops setting per group from its config.
+                fixed_loops_override=raw_model.config.max_loops 
+            )
+            print(f"  step {iter_num}: val loss with auto_exit (threshold {auto_exit_threshold_eval}): {auto_exit_losses['val']:.4f}")
+            cycle_log_metrics[f"val/loss_auto_exit_thresh_{auto_exit_threshold_eval}"] = auto_exit_losses['val']
+            cycle_log_metrics[f"train/loss_auto_exit_thresh_{auto_exit_threshold_eval}"] = auto_exit_losses['train']
+            # --- End: New automatic loop exit evaluation ---
 
         # Single log call for the entire cycle if wandb_log is enabled
         if wandb_log and cycle_log_metrics:
