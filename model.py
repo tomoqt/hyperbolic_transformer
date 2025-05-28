@@ -97,9 +97,10 @@ class Block(nn.Module):
         super().__init__()
         self.rms_norm_attn_input = nn.RMSNorm(config.n_embd)
         self.attn = CausalSelfAttention(config)
+
         self.rms_norm_attn_output = nn.RMSNorm(config.n_embd)
         
-        self.rms_norm_mlp_input = nn.RMSNorm(config.n_embd)
+       # self.rms_norm_mlp_input = nn.RMSNorm(config.n_embd) #redundant, mainly here for reference as sandwhich
         self.mlp = MLP(config)
         self.rms_norm_mlp_output = nn.RMSNorm(config.n_embd)
 
@@ -115,8 +116,8 @@ class Block(nn.Module):
         
         # Original structure: mlp_output = self.mlp(torch.nn.RMSNorm(x))
         # Note: x here is the original x plus the normalized attention output.
-        mlp_input_normalized = self.rms_norm_mlp_input(x)
-        mlp_output = self.mlp(mlp_input_normalized)
+        # mlp_input_normalized = self.rms_norm_mlp_input(x) #redundant, mainly here for reference as sandwhich
+        mlp_output = self.mlp(x)
         
         # Original structure: x = x + torch.nn.RMSNorm(mlp_output)
         # The residual connection adds the *normalized* output of the MLP block.
@@ -137,7 +138,7 @@ class GPTConfig:
     # Looping configuration
     loop_groups: list[list[int]] = None # Defines groups of layer indices to be looped together. E.g., [[0,1],[3]]. If None, default behavior (e.g. innermost layer) is handled by training script.
     loop_counts: list[int] = None # Number of loops for each group in loop_groups. If None or entry <=0, max_loops is used for that group.
-    loop_noise_scale: float = 0.0 # Scale for Gaussian noise added in the first multi-loop iteration of a group (0.0 means no noise)
+    loop_noise_scale: float = 1.0 # Scale for Gaussian noise added in the first multi-loop iteration of a group (0.0 means no noise)
     concatenate_initial_representation: bool = True # Concatenate initial representation before looping, instead of summing to residual stream, and adapt it
     loops_representation: bool = False # Flag to track and return representations across loops (for debugging/analysis)
     max_loops: int = 30
