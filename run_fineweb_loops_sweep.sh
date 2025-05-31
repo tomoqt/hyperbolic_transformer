@@ -3,8 +3,13 @@ set -e # Exit immediately if a command exits with a non-zero status.
 
 # Base configuration file
 BASE_CONFIG="config/train_fineweb.py"
-NEW_BATCH_SIZE=32
+NEW_BATCH_SIZE=16
 MAX_ITERS_SWEEP=5000
+
+# Target total loop iterations metric, based on Experiment 1 (baseline from config)
+# Exp1: loop_groups=[[2,3],[4]] (sum_len_groups=3), max_loops=30 (from config) -> Metric = 3 * 30 = 90
+# This script hardcodes the derived max_loops values to achieve this metric.
+# Note: n_layer is 6 (layers 0-5). Default max_loops in config/train_fineweb.py is 30.
 
 # n_layer is 6 as per config/train_fineweb.py
 # Default max_loops is 30 as per config/train_fineweb.py
@@ -28,12 +33,13 @@ echo "Finished Experiment: $RUN_NAME_BASE"
 echo "--------------------------------------------------"
 
 # Experiment 2: Single Inner Group (layer 2 out of 0-5)
-RUN_NAME_SINGLE_MIDDLE="lg_single_middle_2_L6_N30_B${NEW_BATCH_SIZE}_${MAX_ITERS_SWEEP}iters"
-echo "Running Experiment (2/9): $RUN_NAME_SINGLE_MIDDLE (loop_groups=\"[[2]]\", max_loops=30)"
+# loop_groups="[[2]]" -> sum_len_groups = 1. Target metric = 90. new_max_loops = round(90 / 1) = 90.
+RUN_NAME_SINGLE_MIDDLE="lg_single_middle_2_L6_N90_B${NEW_BATCH_SIZE}_${MAX_ITERS_SWEEP}iters"
+echo "Running Experiment (2/9): $RUN_NAME_SINGLE_MIDDLE (loop_groups=\\"[[2]]\\", max_loops=90)"
 python train.py "$BASE_CONFIG" \
     --wandb_run_name="$RUN_NAME_SINGLE_MIDDLE" \
     --loop_groups="[[2]]" \
-    --max_loops=30 \
+    --max_loops=90 \
     --batch_size=$NEW_BATCH_SIZE \
     --max_iters=$MAX_ITERS_SWEEP \
     --lr_decay_iters=$MAX_ITERS_SWEEP
@@ -41,12 +47,13 @@ echo "Finished Experiment: $RUN_NAME_SINGLE_MIDDLE"
 echo "--------------------------------------------------"
 
 # Experiment 3: Single Early Group (layer 0 out of 0-5)
-RUN_NAME_SINGLE_EARLY="lg_single_early_0_L6_N30_B${NEW_BATCH_SIZE}_${MAX_ITERS_SWEEP}iters"
-echo "Running Experiment (3/9): $RUN_NAME_SINGLE_EARLY (loop_groups=\"[[0]]\", max_loops=30)"
+# loop_groups="[[0]]" -> sum_len_groups = 1. Target metric = 90. new_max_loops = round(90 / 1) = 90.
+RUN_NAME_SINGLE_EARLY="lg_single_early_0_L6_N90_B${NEW_BATCH_SIZE}_${MAX_ITERS_SWEEP}iters"
+echo "Running Experiment (3/9): $RUN_NAME_SINGLE_EARLY (loop_groups=\\"[[0]]\\", max_loops=90)"
 python train.py "$BASE_CONFIG" \
     --wandb_run_name="$RUN_NAME_SINGLE_EARLY" \
     --loop_groups="[[0]]" \
-    --max_loops=30 \
+    --max_loops=90 \
     --batch_size=$NEW_BATCH_SIZE \
     --max_iters=$MAX_ITERS_SWEEP \
     --lr_decay_iters=$MAX_ITERS_SWEEP
@@ -54,12 +61,13 @@ echo "Finished Experiment: $RUN_NAME_SINGLE_EARLY"
 echo "--------------------------------------------------"
 
 # Experiment 4: Single Late Group (layer 5 out of 0-5)
-RUN_NAME_SINGLE_LATE="lg_single_late_5_L6_N30_B${NEW_BATCH_SIZE}_${MAX_ITERS_SWEEP}iters"
-echo "Running Experiment (4/9): $RUN_NAME_SINGLE_LATE (loop_groups=\"[[5]]\", max_loops=30)"
+# loop_groups="[[5]]" -> sum_len_groups = 1. Target metric = 90. new_max_loops = round(90 / 1) = 90.
+RUN_NAME_SINGLE_LATE="lg_single_late_5_L6_N90_B${NEW_BATCH_SIZE}_${MAX_ITERS_SWEEP}iters"
+echo "Running Experiment (4/9): $RUN_NAME_SINGLE_LATE (loop_groups=\\"[[5]]\\", max_loops=90)"
 python train.py "$BASE_CONFIG" \
     --wandb_run_name="$RUN_NAME_SINGLE_LATE" \
     --loop_groups="[[5]]" \
-    --max_loops=30 \
+    --max_loops=90 \
     --batch_size=$NEW_BATCH_SIZE \
     --max_iters=$MAX_ITERS_SWEEP \
     --lr_decay_iters=$MAX_ITERS_SWEEP
@@ -67,51 +75,56 @@ echo "Finished Experiment: $RUN_NAME_SINGLE_LATE"
 echo "--------------------------------------------------"
 
 # Experiment 5: Looping at Extrema (First [0] and Last [5] Layers, separate groups)
-RUN_NAME_EXTREMA="lg_extrema_0_5_L6_N30_B${NEW_BATCH_SIZE}_${MAX_ITERS_SWEEP}iters"
-echo "Running Experiment (5/9): $RUN_NAME_EXTREMA (loop_groups=\"[[0],[5]]\", max_loops=30)"
+# loop_groups="[[0],[5]]" -> sum_len_groups = 2. Target metric = 90. new_max_loops = round(90 / 2) = 45.
+RUN_NAME_EXTREMA="lg_extrema_0_5_L6_N45_B${NEW_BATCH_SIZE}_${MAX_ITERS_SWEEP}iters"
+echo "Running Experiment (5/9): $RUN_NAME_EXTREMA (loop_groups=\\"[[0],[5]]\\", max_loops=45)"
 python train.py "$BASE_CONFIG" \
     --wandb_run_name="$RUN_NAME_EXTREMA" \
     --loop_groups="[[0],[5]]" \
-    --max_loops=30 \
+    --max_loops=45 \
     --batch_size=$NEW_BATCH_SIZE \
     --max_iters=$MAX_ITERS_SWEEP \
     --lr_decay_iters=$MAX_ITERS_SWEEP
 echo "Finished Experiment: $RUN_NAME_EXTREMA"
 echo "--------------------------------------------------"
 
-# Experiment 6: Looping every layer independently, with lower max_loops (N=5)
-RUN_NAME_ALL_INDEP_LOW_N="lg_all_independent_L6_N5_B${NEW_BATCH_SIZE}_${MAX_ITERS_SWEEP}iters"
-echo "Running Experiment (6/9): $RUN_NAME_ALL_INDEP_LOW_N (loop_groups=\"[[0],[1],[2],[3],[4],[5]]\", max_loops=5)"
+# Experiment 6: Looping every layer independently, with lower max_loops (N=5 originally)
+# loop_groups="[[0],[1],[2],[3],[4],[5]]" -> sum_len_groups = 6. Target metric = 90. new_max_loops = round(90 / 6) = 15.
+RUN_NAME_ALL_INDEP_LOW_N="lg_all_independent_L6_N15_B${NEW_BATCH_SIZE}_${MAX_ITERS_SWEEP}iters"
+echo "Running Experiment (6/9): $RUN_NAME_ALL_INDEP_LOW_N (loop_groups=\\"[[0],[1],[2],[3],[4],[5]]\\", max_loops=15)"
 python train.py "$BASE_CONFIG" \
     --wandb_run_name="$RUN_NAME_ALL_INDEP_LOW_N" \
     --loop_groups="[[0],[1],[2],[3],[4],[5]]" \
-    --max_loops=5 \
+    --max_loops=15 \
     --batch_size=$NEW_BATCH_SIZE \
     --max_iters=$MAX_ITERS_SWEEP \
     --lr_decay_iters=$MAX_ITERS_SWEEP
 echo "Finished Experiment: $RUN_NAME_ALL_INDEP_LOW_N"
 echo "--------------------------------------------------"
 
-# Experiment 7: One big looped group (all layers 0-5), default max_loops (N=30)
-RUN_NAME_ALL_TOGETHER_DEFAULT_N="lg_all_together_L6_N30_B${NEW_BATCH_SIZE}_${MAX_ITERS_SWEEP}iters"
-echo "Running Experiment (7/9): $RUN_NAME_ALL_TOGETHER_DEFAULT_N (loop_groups=\"[[0,1,2,3,4,5]]\", max_loops=30)"
+# Experiment 7: One big looped group (all layers 0-5), default max_loops (N=30 originally)
+# loop_groups="[[0,1,2,3,4,5]]" -> sum_len_groups = 6. Target metric = 90. new_max_loops = round(90 / 6) = 15.
+RUN_NAME_ALL_TOGETHER_DEFAULT_N="lg_all_together_L6_N15_B${NEW_BATCH_SIZE}_${MAX_ITERS_SWEEP}iters"
+echo "Running Experiment (7/9): $RUN_NAME_ALL_TOGETHER_DEFAULT_N (loop_groups=\\"[[0,1,2,3,4,5]]\\", max_loops=15)"
 python train.py "$BASE_CONFIG" \
     --wandb_run_name="$RUN_NAME_ALL_TOGETHER_DEFAULT_N" \
     --loop_groups="[[0,1,2,3,4,5]]" \
-    --max_loops=30 \
+    --max_loops=15 \
     --batch_size=$NEW_BATCH_SIZE \
     --max_iters=$MAX_ITERS_SWEEP \
     --lr_decay_iters=$MAX_ITERS_SWEEP
 echo "Finished Experiment: $RUN_NAME_ALL_TOGETHER_DEFAULT_N"
 echo "--------------------------------------------------"
 
-# Experiment 8: One big looped group (all layers 0-5), higher max_loops (N=50)
-RUN_NAME_ALL_TOGETHER_HIGH_N_EXP8="lg_all_together_L6_N50_B${NEW_BATCH_SIZE}_${MAX_ITERS_SWEEP}iters"
-echo "Running Experiment (8/9): $RUN_NAME_ALL_TOGETHER_HIGH_N_EXP8 (loop_groups=\"[[0,1,2,3,4,5]]\", max_loops=50)"
+# Experiment 8: One big looped group (all layers 0-5), higher max_loops (N=50 originally)
+# loop_groups="[[0,1,2,3,4,5]]" -> sum_len_groups = 6. Target metric = 90. new_max_loops = round(90 / 6) = 15.
+# Note: wandb_run_name will be identical to Exp7 if not further modified.
+RUN_NAME_ALL_TOGETHER_HIGH_N_EXP8="lg_all_together_L6_N15_B${NEW_BATCH_SIZE}_${MAX_ITERS_SWEEP}iters" # Was N50
+echo "Running Experiment (8/9): $RUN_NAME_ALL_TOGETHER_HIGH_N_EXP8 (loop_groups=\\"[[0,1,2,3,4,5]]\\", max_loops=15)" # Was max_loops=50
 python train.py "$BASE_CONFIG" \
     --wandb_run_name="$RUN_NAME_ALL_TOGETHER_HIGH_N_EXP8" \
     --loop_groups="[[0,1,2,3,4,5]]" \
-    --max_loops=50 \
+    --max_loops=15 \
     --batch_size=$NEW_BATCH_SIZE \
     --max_iters=$MAX_ITERS_SWEEP \
     --lr_decay_iters=$MAX_ITERS_SWEEP
