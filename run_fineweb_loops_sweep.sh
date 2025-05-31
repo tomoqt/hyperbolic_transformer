@@ -3,7 +3,7 @@ set -e # Exit immediately if a command exits with a non-zero status.
 
 # Base configuration file
 BASE_CONFIG="config/train_fineweb.py"
-NEW_BATCH_SIZE=1
+NEW_BATCH_SIZE=32
 MAX_ITERS_SWEEP=5000
 
 # n_layer is 6 as per config/train_fineweb.py
