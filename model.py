@@ -349,11 +349,11 @@ class GPT(nn.Module):
                     
                     current_loop_iteration_input = x_group_output_this_iter # Update before potential break
 
-                    if self.config.loops_representation: # Store representation before potential early exit
+                    if self.config.loops_representation: # Store representation ONLY from within an active loop group iteration
                         loop_representations.append(current_loop_iteration_input.clone())
 
                     # Automatic loop exit logic
-                    if self.config.automatic_loop_exit and num_loops_for_this_group > 1:
+                    if self.config.automatic_loop_exit and num_loops_for_this_group > 1 and b == 1:
                         # Calculate L2 norm of (output - input) for the current group pass,
                         # then mean over sequence and batch for a scalar.
                         current_iter_change_norm_tensor = torch.norm(x_group_output_this_iter - x_input_to_group_layers_this_iter, p=2, dim=-1) # (B, T)
@@ -366,6 +366,9 @@ class GPT(nn.Module):
                                 break # Exit this group's loop
                         
                         prev_diff_norm_for_group = current_iter_change_norm
+                    elif self.config.automatic_loop_exit and num_loops_for_this_group > 1 and b > 1:
+                        if loop_iter_idx == 0: # Print warning only once per group if condition met
+                            print(f"Warning: Batch size ({b}) > 1. Automatic loop exit is disabled for group {current_group_indices} to prevent potential tensor ambiguity. Loop will run for {num_loops_for_this_group} iterations.")
                     
                     # No automatic exit, loop runs for num_loops_for_this_group iterations
                     # The standard for loop handles exit if not broken early.
@@ -378,8 +381,8 @@ class GPT(nn.Module):
             else:
                 # --- Normal Processing for a single layer (not in a defined group or loop_groups is None) ---
                 x = self.transformer.h[current_layer_idx](x)
-                if self.config.loops_representation:
-                    loop_representations.append(x.clone())
+                # if self.config.loops_representation: # Removed: No longer collect reps for single-pass non-grouped layers
+                #     loop_representations.append(x.clone())
                 current_layer_idx += 1
         
         x = self.transformer.ln_f(x)
@@ -509,17 +512,50 @@ class GPT(nn.Module):
         return mfu
 
     @torch.no_grad()
-    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, return_first_step_loop_reps=False):
         """
         Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
         the sequence max_new_tokens times, feeding the predictions back into the model each time.
         Most likely you'll want to make sure to be in model.eval() mode of operation for this.
+        If return_first_step_loop_reps is True and config.loops_representation is True,
+        this will also return the loop representations from the very first forward pass used for generation.
         """
+        first_step_loop_reps_collected = None
+        initial_call_for_reps = True # Flag to capture reps only on the first meaningful call
+
         for _ in range(max_new_tokens):
             # if the sequence context is growing too long we must crop it at block_size
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
+            
+            current_loop_reps_for_this_step = None # Initialize for this iteration
             # forward the model to get the logits for the index in the sequence
-            logits, _ = self(idx_cond)
+            if self.config.loops_representation:
+                output_from_forward = self(idx_cond)
+                # Ensure output_from_forward is a tuple and has 3 elements as expected
+                if isinstance(output_from_forward, tuple) and len(output_from_forward) == 3:
+                    logits, _, current_loop_reps_for_this_step = output_from_forward
+                else:
+                    # This case should ideally not be reached if config.loops_representation is True
+                    # and the model's forward pass behaves as expected.
+                    print("Warning: GPT.forward() did not return 3 values (logits, loss, loop_reps) even though config.loops_representation is True.")
+                    # Attempt to gracefully handle cases where only (logits, loss) or just logits are returned.
+                    if isinstance(output_from_forward, tuple) and len(output_from_forward) >= 1:
+                        logits = output_from_forward[0]
+                    else: # If it's just a tensor (logits)
+                        logits = output_from_forward
+                    # current_loop_reps_for_this_step remains None
+            else: # If loops_representation is False
+                output_from_forward = self(idx_cond)
+                if isinstance(output_from_forward, tuple) and len(output_from_forward) >= 1:
+                    logits = output_from_forward[0]
+                else:
+                    logits = output_from_forward
+                # current_loop_reps_for_this_step remains None
+            
+            if return_first_step_loop_reps and initial_call_for_reps and current_loop_reps_for_this_step is not None:
+                first_step_loop_reps_collected = current_loop_reps_for_this_step
+                initial_call_for_reps = False # Avoid re-capturing on subsequent generation steps
+            
             # pluck the logits at the final step and scale by desired temperature
             logits = logits[:, -1, :] / temperature
             # optionally crop the logits to only the top k options
@@ -533,4 +569,9 @@ class GPT(nn.Module):
             # append sampled index to the running sequence and continue
             idx = torch.cat((idx, idx_next), dim=1)
 
-        return idx
+        # If max_new_tokens is 0, the loop doesn't run, and first_step_loop_reps_collected remains None.
+        # This is acceptable; representations are tied to a generation step.
+        if return_first_step_loop_reps:
+            return idx, first_step_loop_reps_collected
+        else:
+            return idx

@@ -30,8 +30,7 @@ muon_ns_steps = 5
 
 # Looping configurations
 max_loops = 30
-loop_groups = [[2, 3], [4]] # Example: loop layers 2 and 3 (0-indexed)
-loop_counts = None       # Number of loops for each group in loop_groups. None means use max_loops.
+loop_groups = [[2,3],[4]] # Example: loop layers 2 and 3 (0-indexed)
 loop_noise_scale = 1.0
 concatenate_initial_representation = True
 loops_representation = False # For debugging/analysis
