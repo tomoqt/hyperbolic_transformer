@@ -15,6 +15,7 @@ import os
 import pickle
 import math
 import re # For sanitizing filenames
+import matplotlib.patches as mpatches # Added for custom legends
 
 # Assuming model.py is in the same directory or accessible in PYTHONPATH
 from model import GPTConfig, GPT
@@ -75,7 +76,11 @@ def compute_pca_and_transform(loop_representations_list, n_components=2):
 
     return pca, transformed_reps_list_out
 
-def plot_pca_trajectories_2d(pca_transformed_reps_list, prompt_tokens_str, output_file_path):
+PALETTES = [plt.cm.viridis, plt.cm.plasma, plt.cm.inferno, plt.cm.magma, 
+            plt.cm.cividis, plt.cm.coolwarm, plt.cm.spring, plt.cm.autumn, 
+            plt.cm.winter, plt.cm.summer]
+
+def plot_pca_trajectories_2d(pca_transformed_reps_list, prompt_tokens_str, output_file_path, model_config=None):
     """
     Plot 2D PCA trajectories of token representations across loops (all tokens on one plot).
     Args:
@@ -83,6 +88,7 @@ def plot_pca_trajectories_2d(pca_transformed_reps_list, prompt_tokens_str, outpu
                                    representing 2D PCA components for each loop/pass.
         prompt_tokens_str: List of strings, the decoded tokens of the prompt.
         output_file_path: Path to save the plot.
+        model_config: Model configuration, used for loop group information.
     """
     if not pca_transformed_reps_list:
         print("No PCA results to plot for 2D combined trajectory.")
@@ -94,40 +100,101 @@ def plot_pca_trajectories_2d(pca_transformed_reps_list, prompt_tokens_str, outpu
         return
     seq_len = pca_transformed_reps_list[0].shape[0]
 
+    num_loop_groups = 1
+    if model_config and hasattr(model_config, 'loop_groups') and model_config.loop_groups:
+        num_loop_groups = len(model_config.loop_groups)
+    
+    total_model_loops = model_config.max_loops if model_config and hasattr(model_config, 'max_loops') else num_loops
+
+    if model_config and hasattr(model_config, 'loop_groups') and model_config.loop_groups:
+        loop_group_str = str(model_config.loop_groups)
+    else:
+        loop_group_str = "Sequential (1 group)"
+
     plt.figure(figsize=(14, 10))
+    ax = plt.gca()
     
     token_cmap = plt.cm.get_cmap('tab10', seq_len if seq_len <= 10 else 20)
     
     for token_idx in range(seq_len):
         trajectory = np.array([pca_transformed_reps_list[loop_idx][token_idx, :2] for loop_idx in range(num_loops)])
-        
         token_label = prompt_tokens_str[token_idx] if token_idx < len(prompt_tokens_str) else f"Token {token_idx}"
         
-        plt.plot(trajectory[:, 0], trajectory[:, 1], marker='o', markersize=3, linestyle='-', 
-                 color=token_cmap(token_idx % token_cmap.N), label=f"'{token_label}' (pos {token_idx})",
-                 alpha=0.7)
-        
-        if num_loops > 0:
-            plt.scatter(trajectory[0, 0], trajectory[0, 1], s=50, 
-                        color=token_cmap(token_idx % token_cmap.N), ec='black', marker='X', zorder=5)
-            if num_loops > 1:
-                 plt.scatter(trajectory[-1, 0], trajectory[-1, 1], s=50, 
-                             color=token_cmap(token_idx % token_cmap.N), ec='black', marker='*', zorder=5)
+        # Plot main trajectory line (colored by token)
+        ax.plot(trajectory[:, 0], trajectory[:, 1], linestyle='-', 
+                 color=token_cmap(token_idx % token_cmap.N), 
+                 label=f"'{token_label}' (pos {token_idx})" if num_loop_groups == 1 else None, # Avoid duplicate labels if markers are colored
+                 alpha=0.4, zorder=1)
 
-    plt.title(f'Combined 2D PCA Trajectories of Token Representations ({num_loops} Loops)')
+        # Plot markers colored by loop group and progression
+        for loop_k in range(num_loops):
+            point_coords = trajectory[loop_k, :]
+            original_loop_idx = loop_k
+
+            group_idx = original_loop_idx % num_loop_groups
+            cmap_for_point = PALETTES[group_idx % len(PALETTES)]
+            occurrence = original_loop_idx // num_loop_groups
+            # Max occurrence index for this group_idx
+            max_occ_idx = (total_model_loops - 1 - group_idx) // num_loop_groups
+            
+            norm_val = occurrence / max(1, max_occ_idx) if max_occ_idx >= 0 and max_occ_idx > 0 else 0.0
+            point_color = cmap_for_point(norm_val)
+
+            ax.scatter(point_coords[0], point_coords[1], color=point_color, 
+                       marker='o', s=20, alpha=0.8, zorder=2, 
+                       label=f"'{token_label}' (pos {token_idx})" if loop_k ==0 and num_loop_groups > 1 else None)
+
+
+        if num_loops > 0:
+            # Start and end markers (overall trajectory for this token)
+            ax.scatter(trajectory[0, 0], trajectory[0, 1], s=50, 
+                        color=token_cmap(token_idx % token_cmap.N), ec='black', marker='X', zorder=5,
+                        label=f"Start '{token_label}'" if num_loop_groups == 1 and token_idx == 0 else None) # Simplified legend
+            if num_loops > 1:
+                 ax.scatter(trajectory[-1, 0], trajectory[-1, 1], s=50, 
+                             color=token_cmap(token_idx % token_cmap.N), ec='black', marker='*', zorder=5,
+                             label=f"End '{token_label}'" if num_loop_groups == 1 and token_idx == 0 else None)
+
+
+    title_info = f'Combined 2D PCA Trajectories ({num_loops} Data Loops)'
+    config_info = f'Model: {total_model_loops} Loops, Groups: {num_loop_groups}, Structure: {loop_group_str}'
+    plt.title(f'{title_info}\n{config_info}', fontsize=10)
     plt.xlabel('Principal Component 1')
     plt.ylabel('Principal Component 2')
-    plt.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize='small')
+    
+    handles, labels = ax.get_legend_handles_labels()
+    # Filter out duplicate labels for tokens if num_loop_groups > 1
+    unique_labels = {}
+    for handle, label in zip(handles, labels):
+        if label not in unique_labels : unique_labels[label] = handle
+    ax.legend(unique_labels.values(), unique_labels.keys(), loc='center left', bbox_to_anchor=(1, 0.5), fontsize='small')
+    
     plt.grid(True, linestyle='--', alpha=0.7)
     plt.axhline(0, color='black', linewidth=0.5, alpha=0.5)
     plt.axvline(0, color='black', linewidth=0.5, alpha=0.5)
-    
-    plt.tight_layout(rect=[0, 0, 0.85, 1])
+
+    if num_loop_groups > 1:
+        palette_legend_handles = []
+        # Only add handles for groups that are actually present if num_loops < num_loop_groups
+        actual_groups_in_plot = sorted(list(set(idx % num_loop_groups for idx in range(num_loops))))
+        for grp_idx in actual_groups_in_plot:
+            cmap = PALETTES[grp_idx % len(PALETTES)]
+            patch = mpatches.Patch(color=cmap(0.6), label=f'Group {grp_idx}') # cmap(0.6) for representative color
+            palette_legend_handles.append(patch)
+        if palette_legend_handles:
+            from matplotlib.legend import Legend # Import Legend here
+            palette_labels = [h.get_label() for h in palette_legend_handles]
+            leg2 = Legend(ax, palette_legend_handles, palette_labels, title="Loop Groups", loc='lower right', fontsize='x-small', bbox_to_anchor=(1, 0))
+            ax.add_artist(leg2)
+            plt.tight_layout(rect=[0, 0, 0.80, 1]) # Adjust rect for two legends
+    else:
+        plt.tight_layout(rect=[0, 0, 0.85, 1])
+
     plt.savefig(output_file_path, dpi=300)
     plt.close()
     print(f"Combined 2D PCA trajectory plot saved to {output_file_path}")
 
-def plot_pca_trajectories_3d(pca_transformed_reps_list, prompt_tokens_str, output_file_path):
+def plot_pca_trajectories_3d(pca_transformed_reps_list, prompt_tokens_str, output_file_path, model_config=None):
     """
     Plot 3D PCA trajectories of token representations across loops (all tokens on one plot).
     Assumes pca_transformed_reps_list contains at least 3 components.
@@ -141,6 +208,16 @@ def plot_pca_trajectories_3d(pca_transformed_reps_list, prompt_tokens_str, outpu
         return
     seq_len = pca_transformed_reps_list[0].shape[0]
 
+    num_loop_groups = 1
+    if model_config and hasattr(model_config, 'loop_groups') and model_config.loop_groups:
+        num_loop_groups = len(model_config.loop_groups)
+    total_model_loops = model_config.max_loops if model_config and hasattr(model_config, 'max_loops') else num_loops
+
+    if model_config and hasattr(model_config, 'loop_groups') and model_config.loop_groups:
+        loop_group_str = str(model_config.loop_groups)
+    else:
+        loop_group_str = "Sequential (1 group)"
+
     fig = plt.figure(figsize=(16, 12))
     ax = fig.add_subplot(111, projection='3d')
     token_cmap = plt.cm.get_cmap('tab10', seq_len if seq_len <= 10 else 20)
@@ -148,27 +225,72 @@ def plot_pca_trajectories_3d(pca_transformed_reps_list, prompt_tokens_str, outpu
     for token_idx in range(seq_len):
         trajectory_3d = np.array([pca_transformed_reps_list[loop_idx][token_idx, :3] for loop_idx in range(num_loops)]) # Use first 3 components
         token_label = prompt_tokens_str[token_idx] if token_idx < len(prompt_tokens_str) else f"Token {token_idx}"
-        ax.plot(trajectory_3d[:, 0], trajectory_3d[:, 1], trajectory_3d[:, 2], marker='o', markersize=2, linestyle='-',
-                color=token_cmap(token_idx % token_cmap.N), label=f"'{token_label}' (pos {token_idx})", alpha=0.6)
+        
+        ax.plot(trajectory_3d[:, 0], trajectory_3d[:, 1], trajectory_3d[:, 2], linestyle='-',
+                color=token_cmap(token_idx % token_cmap.N), 
+                label=f"'{token_label}' (pos {token_idx})" if num_loop_groups == 1 else None, alpha=0.4, zorder=1)
+
+        for loop_k in range(num_loops):
+            point_coords = trajectory_3d[loop_k, :]
+            original_loop_idx = loop_k
+
+            group_idx = original_loop_idx % num_loop_groups
+            cmap_for_point = PALETTES[group_idx % len(PALETTES)]
+            occurrence = original_loop_idx // num_loop_groups
+            max_occ_idx = (total_model_loops - 1 - group_idx) // num_loop_groups
+            
+            norm_val = occurrence / max(1, max_occ_idx) if max_occ_idx >= 0 and max_occ_idx > 0 else 0.0
+            point_color = cmap_for_point(norm_val)
+            
+            ax.scatter(point_coords[0], point_coords[1], point_coords[2], color=point_color, 
+                       marker='o', s=15, alpha=0.8, zorder=2, depthshade=True,
+                       label=f"'{token_label}' (pos {token_idx})" if loop_k == 0 and num_loop_groups > 1 else None)
+
+
         if num_loops > 0:
             ax.scatter(trajectory_3d[0, 0], trajectory_3d[0, 1], trajectory_3d[0, 2], s=30, 
-                       color=token_cmap(token_idx % token_cmap.N), ec='black', marker='X', depthshade=True)
+                       color=token_cmap(token_idx % token_cmap.N), ec='black', marker='X', depthshade=True,
+                       label=f"Start '{token_label}'" if num_loop_groups == 1 and token_idx == 0 else None)
             if num_loops > 1:
                 ax.scatter(trajectory_3d[-1, 0], trajectory_3d[-1, 1], trajectory_3d[-1, 2], s=30, 
-                           color=token_cmap(token_idx % token_cmap.N), ec='black', marker='*', depthshade=True)
+                           color=token_cmap(token_idx % token_cmap.N), ec='black', marker='*', depthshade=True,
+                           label=f"End '{token_label}'" if num_loop_groups == 1 and token_idx == 0 else None)
 
-    ax.set_title(f'Combined 3D PCA Trajectories of Token Representations ({num_loops} Loops)')
+    title_info = f'Combined 3D PCA Trajectories ({num_loops} Data Loops)'
+    config_info = f'Model: {total_model_loops} Loops, Groups: {num_loop_groups}, Structure: {loop_group_str}'
+    ax.set_title(f'{title_info}\n{config_info}', fontsize=10)
     ax.set_xlabel('Principal Component 1')
     ax.set_ylabel('Principal Component 2')
     ax.set_zlabel('Principal Component 3')
-    ax.legend(loc='center left', bbox_to_anchor=(1.1, 0.5), fontsize='small')
-    # Consider adding view_init options if default view is not good: ax.view_init(elev=20, azim=30)
-    fig.tight_layout(rect=[0, 0, 0.85, 1])
+    
+    handles, labels = ax.get_legend_handles_labels()
+    unique_labels = {}
+    for handle, label in zip(handles, labels):
+        if label not in unique_labels : unique_labels[label] = handle
+    ax.legend(unique_labels.values(), unique_labels.keys(), loc='center left', bbox_to_anchor=(1.1, 0.5), fontsize='small')
+
+    if num_loop_groups > 1:
+        palette_legend_handles = []
+        actual_groups_in_plot = sorted(list(set(idx % num_loop_groups for idx in range(num_loops))))
+        for grp_idx in actual_groups_in_plot:
+            cmap = PALETTES[grp_idx % len(PALETTES)]
+            patch = mpatches.Patch(color=cmap(0.6), label=f'Group {grp_idx}')
+            palette_legend_handles.append(patch)
+        if palette_legend_handles:
+            from matplotlib.legend import Legend # Ensure Legend is imported if not globally
+            palette_labels = [h.get_label() for h in palette_legend_handles]
+            leg2 = Legend(ax, palette_legend_handles, palette_labels, title="Loop Groups", loc='lower right', fontsize='x-small', bbox_to_anchor=(1.1, 0))
+            ax.add_artist(leg2)
+            fig.tight_layout(rect=[0, 0, 0.80, 1]) # Adjust rect for two legends
+    else:
+         fig.tight_layout(rect=[0, 0, 0.85, 1])
+         
     plt.savefig(output_file_path, dpi=300)
     plt.close(fig)
     print(f"Combined 3D PCA trajectory plot saved to {output_file_path}")
 
-def plot_single_token_pca_trajectory(pca_transformed_reps_list, token_idx_to_plot, token_str_label, output_file_path, is_3d_plot=False, is_zoomed_view=False, num_last_steps_to_zoom=15):
+def plot_single_token_pca_trajectory(pca_transformed_reps_list, token_idx_to_plot, token_str_label, output_file_path, 
+                                     is_3d_plot=False, is_zoomed_view=False, num_last_steps_to_zoom=15, model_config=None):
     """
     Plot 2D or 3D PCA trajectory for a single token across loops.
     Can also produce a zoomed view of the last N steps.
@@ -177,8 +299,8 @@ def plot_single_token_pca_trajectory(pca_transformed_reps_list, token_idx_to_plo
         print(f"No PCA results for token {token_str_label} (idx {token_idx_to_plot}).")
         return
 
-    total_num_loops = len(pca_transformed_reps_list)
-    if total_num_loops == 0:
+    total_data_loops = len(pca_transformed_reps_list) # Actual loops in data
+    if total_data_loops == 0:
         print(f"PCA list empty for token {token_str_label}.")
         return
 
@@ -195,73 +317,138 @@ def plot_single_token_pca_trajectory(pca_transformed_reps_list, token_idx_to_plo
         print(f"Token index {token_idx_to_plot} OOB.")
         return
 
-    full_trajectory = np.array([pca_transformed_reps_list[loop_idx][token_idx_to_plot, :] for loop_idx in range(total_num_loops)])
+    full_trajectory = np.array([pca_transformed_reps_list[loop_idx][token_idx_to_plot, :] for loop_idx in range(total_data_loops)])
 
-    plot_title_suffix = f"across {total_num_loops} Loops"
+    plot_title_suffix = f"across {total_data_loops} Loops"
     current_trajectory_to_plot = full_trajectory
-    loop_indices_for_plot = np.arange(total_num_loops)
+    loop_indices_for_plot = np.arange(total_data_loops) # These are original loop indices
 
     if is_zoomed_view:
-        if total_num_loops <= num_last_steps_to_zoom:
-            print(f"Not enough loops ({total_num_loops}) to zoom for token '{token_str_label}'. Plotting full trajectory.")
+        if total_data_loops <= num_last_steps_to_zoom:
+            print(f"Not enough loops ({total_data_loops}) to zoom for token '{token_str_label}'. Plotting full trajectory.")
         else:
-            start_idx = total_num_loops - num_last_steps_to_zoom
+            start_idx = total_data_loops - num_last_steps_to_zoom
             current_trajectory_to_plot = full_trajectory[start_idx:, :]
-            loop_indices_for_plot = np.arange(start_idx, total_num_loops)
-            plot_title_suffix = f"(Loops {start_idx}-{total_num_loops-1})"
+            loop_indices_for_plot = np.arange(start_idx, total_data_loops)
+            plot_title_suffix = f"(Loops {start_idx}-{total_data_loops-1})"
 
     fig = plt.figure(figsize=(12, 9) if is_3d_plot else (10,8))
     ax = fig.add_subplot(111, projection='3d') if is_3d_plot else fig.add_subplot(111)
-    loop_cmap = plt.cm.viridis
+    
+    total_model_loops = total_data_loops 
+    loop_group_str = "Sequential (1 group)"
+    if model_config and hasattr(model_config, 'loop_groups') and model_config.loop_groups:
+        num_loop_groups = len(model_config.loop_groups)
+        loop_group_str = str(model_config.loop_groups)
+    if model_config and hasattr(model_config, 'max_loops'):
+        total_model_loops = model_config.max_loops
 
-    # Select components for plotting
     pc_data_to_plot = current_trajectory_to_plot[:, :3] if is_3d_plot else current_trajectory_to_plot[:, :2]
 
+    # Plot connecting line
     if is_3d_plot:
         ax.plot(pc_data_to_plot[:, 0], pc_data_to_plot[:, 1], pc_data_to_plot[:, 2], linestyle='-', color='grey', alpha=0.5, zorder=1)
-        scatter = ax.scatter(pc_data_to_plot[:, 0], pc_data_to_plot[:, 1], pc_data_to_plot[:, 2], s=50, c=loop_indices_for_plot, cmap=loop_cmap, norm=plt.Normalize(vmin=0, vmax=max(1, total_num_loops-1)), ec='black', marker='o', zorder=2, depthshade=True)
     else:
         ax.plot(pc_data_to_plot[:, 0], pc_data_to_plot[:, 1], linestyle='-', color='grey', alpha=0.6, zorder=1)
-        scatter = ax.scatter(pc_data_to_plot[:, 0], pc_data_to_plot[:, 1], s=60, c=loop_indices_for_plot, cmap=loop_cmap, norm=plt.Normalize(vmin=0, vmax=max(1, total_num_loops-1)), ec='black', marker='o', zorder=2)
 
+    all_legend_handles = []
+
+    # Plot markers for each group
+    for group_iter in range(num_loop_groups):
+        current_cmap = PALETTES[group_iter % len(PALETTES)]
+        
+        indices_for_group_in_view = [
+            i for i, original_loop_idx in enumerate(loop_indices_for_plot)
+            if (original_loop_idx % num_loop_groups) == group_iter
+        ]
+
+        if not indices_for_group_in_view:
+            continue
+
+        pc_data_group_subset = pc_data_to_plot[indices_for_group_in_view]
+        original_loop_indices_of_subset = loop_indices_for_plot[indices_for_group_in_view]
+        
+        occurrences_in_group = original_loop_indices_of_subset // num_loop_groups
+        max_occurrence_idx_for_group = (total_model_loops - 1 - group_iter) // num_loop_groups
+        
+        color_values_norm = occurrences_in_group / max(1, max_occurrence_idx_for_group) if max_occurrence_idx_for_group >=0 and max_occurrence_idx_for_group > 0 else np.zeros_like(occurrences_in_group)
+
+        scatter_kwargs = {
+            "s": 60 if not is_3d_plot else 50, "c": color_values_norm, "cmap": current_cmap,
+            "ec": 'black', "marker": 'o', "zorder": 2,
+            "label": f"Group {group_iter} Loops"
+        }
+        if is_3d_plot:
+            scatter_kwargs["depthshade"] = True
+            # Need to ensure pc_data_group_subset has 3 columns if is_3d_plot
+            ax.scatter(pc_data_group_subset[:, 0], pc_data_group_subset[:, 1], pc_data_group_subset[:, 2], **scatter_kwargs)
+        else:
+            ax.scatter(pc_data_group_subset[:, 0], pc_data_group_subset[:, 1], **scatter_kwargs)
+    
+    # Text annotations for loop indices
     for i, loop_idx_val in enumerate(loop_indices_for_plot):
         point = pc_data_to_plot[i, :]
         if is_3d_plot:
-            ax.text(point[0], point[1], point[2], f"{loop_idx_val}", size=7, zorder=4, color='k') # Basic 3D text
+            ax.text(point[0], point[1], point[2], f"{loop_idx_val}", size=7, zorder=4, color='k')
         else:
             ax.annotate(f"{loop_idx_val}", (point[0], point[1]), textcoords="offset points", xytext=(5,5), ha='center', fontsize=8, zorder=4)
     
+    # Start and End markers, colored by their group's palette and progression
     if pc_data_to_plot.shape[0] > 0:
+        # First point in view
         first_loop_in_view_original_idx = loop_indices_for_plot[0]
-        last_loop_in_view_original_idx = loop_indices_for_plot[-1]
-        start_color = loop_cmap(first_loop_in_view_original_idx / max(1, total_num_loops -1))
-        end_color = loop_cmap(last_loop_in_view_original_idx / max(1, total_num_loops -1))
+        first_group = first_loop_in_view_original_idx % num_loop_groups
+        first_cmap = PALETTES[first_group % len(PALETTES)]
+        first_occurrence = first_loop_in_view_original_idx // num_loop_groups
+        first_max_occ_idx = (total_model_loops - 1 - first_group) // num_loop_groups
+        first_norm_val = first_occurrence / max(1, first_max_occ_idx) if first_max_occ_idx >=0 and first_max_occ_idx > 0 else 0.0
+        start_marker_color = first_cmap(first_norm_val)
+
+        start_marker_label = f'Loop {first_loop_in_view_original_idx} (Group {first_group})'
         if is_3d_plot:
-            ax.scatter(pc_data_to_plot[0, 0], pc_data_to_plot[0, 1], pc_data_to_plot[0, 2], s=80, color=start_color, ec='black', marker='X', zorder=3, label=f'Loop {first_loop_in_view_original_idx}', depthshade=True)
-            if pc_data_to_plot.shape[0] > 1:
-                ax.scatter(pc_data_to_plot[-1, 0], pc_data_to_plot[-1, 1], pc_data_to_plot[-1, 2], s=80, color=end_color, ec='black', marker='P', zorder=3, label=f'Loop {last_loop_in_view_original_idx}', depthshade=True)
+            ax.scatter(pc_data_to_plot[0, 0], pc_data_to_plot[0, 1], pc_data_to_plot[0, 2], 
+                       s=80, color=start_marker_color, ec='black', marker='X', zorder=3, 
+                       label=start_marker_label, depthshade=True)
         else:
-            ax.scatter(pc_data_to_plot[0, 0], pc_data_to_plot[0, 1], s=100, color=start_color, ec='black', marker='X', zorder=3, label=f'Loop {first_loop_in_view_original_idx}')
-            if pc_data_to_plot.shape[0] > 1:
-                ax.scatter(pc_data_to_plot[-1, 0], pc_data_to_plot[-1, 1], s=100, color=end_color, ec='black', marker='P', zorder=3, label=f'Loop {last_loop_in_view_original_idx}')
+            ax.scatter(pc_data_to_plot[0, 0], pc_data_to_plot[0, 1], 
+                       s=100, color=start_marker_color, ec='black', marker='X', zorder=3, 
+                       label=start_marker_label)
+
+        if pc_data_to_plot.shape[0] > 1:
+            # Last point in view
+            last_loop_in_view_original_idx = loop_indices_for_plot[-1]
+            last_group = last_loop_in_view_original_idx % num_loop_groups
+            last_cmap = PALETTES[last_group % len(PALETTES)]
+            last_occurrence = last_loop_in_view_original_idx // num_loop_groups
+            last_max_occ_idx = (total_model_loops - 1 - last_group) // num_loop_groups
+            last_norm_val = last_occurrence / max(1, last_max_occ_idx) if last_max_occ_idx >=0 and last_max_occ_idx > 0 else 0.0
+            end_marker_color = last_cmap(last_norm_val)
+            
+            end_marker_label = f'Loop {last_loop_in_view_original_idx} (Group {last_group})'
+            if is_3d_plot:
+                ax.scatter(pc_data_to_plot[-1, 0], pc_data_to_plot[-1, 1], pc_data_to_plot[-1, 2], 
+                           s=80, color=end_marker_color, ec='black', marker='P', zorder=3, 
+                           label=end_marker_label, depthshade=True)
+            else:
+                ax.scatter(pc_data_to_plot[-1, 0], pc_data_to_plot[-1, 1], 
+                           s=100, color=end_marker_color, ec='black', marker='P', zorder=3, 
+                           label=end_marker_label)
 
     dim_str = "3D" if is_3d_plot else "2D"
-    ax.set_title(f'{dim_str} PCA Trajectory for Token: "{token_str_label}" (pos {token_idx_to_plot}) {plot_title_suffix}')
+    base_title = f'{dim_str} PCA Trajectory for Token: "{token_str_label}" (pos {token_idx_to_plot}) {plot_title_suffix}'
+    config_info = f'Model: {total_model_loops} Loops, Groups: {num_loop_groups}, Structure: {loop_group_str}'
+    ax.set_title(f'{base_title}\n{config_info}', fontsize=10)
     ax.set_xlabel('Principal Component 1')
     ax.set_ylabel('Principal Component 2')
     if is_3d_plot:
         ax.set_zlabel('Principal Component 3')
 
-    cbar = fig.colorbar(scatter, ax=ax, label='Original Loop Index', 
-                        ticks=np.arange(0, total_num_loops, total_num_loops // 10 if total_num_loops >=10 else 1) if total_num_loops > 1 else [0])
-    if total_num_loops >= 20:
-        step = total_num_loops // 10 or 1
-        cbar.set_ticks(np.arange(0, total_num_loops, step))
-    elif total_num_loops > 1:
-        cbar.set_ticks(np.arange(total_num_loops))
-    else: cbar.set_ticks([0])
+    # Update legend
+    handles, labels = ax.get_legend_handles_labels()
+    # Create a dictionary to keep the first occurrence of each label to ensure uniqueness
+    by_label = dict(zip(labels, handles))
+    ax.legend(by_label.values(), by_label.keys(), fontsize='small', loc='best')
 
-    if pc_data_to_plot.shape[0] > 0: ax.legend()
     ax.grid(True, linestyle='--', alpha=0.7)
     if not is_3d_plot:
         ax.axhline(0, color='black', linewidth=0.5, alpha=0.5)
@@ -306,14 +493,26 @@ def main():
     checkpoint = torch.load(args.checkpoint_path, map_location='cpu')
     if 'model_args' not in checkpoint:
         print("Error: 'model_args' not found in checkpoint."); return
-    checkpoint_model_args = checkpoint['model_args']
-    checkpoint_model_args['loops_representation'] = True
-    checkpoint_model_args['automatic_loop_exit'] = False
+    
+    # Store model_args to pass to plotting functions
+    gpt_model_config = checkpoint['model_args']
+    # Convert dict to a class-like object if it's a dict, for attribute access like model_config.loop_groups
+    # Or ensure gptconf = GPTConfig(**gpt_model_config) is the source of truth
+    
+    gpt_model_config['loops_representation'] = True
+    gpt_model_config['automatic_loop_exit'] = False
     if args.max_loops_override is not None:
-        checkpoint_model_args['max_loops'] = args.max_loops_override
-    if 'effective_n_layer' not in checkpoint_model_args:
-         checkpoint_model_args['effective_n_layer'] = None 
-    gptconf = GPTConfig(**checkpoint_model_args)
+        gpt_model_config['max_loops'] = args.max_loops_override
+    if 'effective_n_layer' not in gpt_model_config:
+         gpt_model_config['effective_n_layer'] = None 
+    
+    # Ensure loop_groups is part of gpt_model_config if it exists in the checkpoint,
+    # or set to None/empty if not, so plotting functions can check for it.
+    # GPTConfig might create it as an attribute.
+    if 'loop_groups' not in gpt_model_config:
+        gpt_model_config['loop_groups'] = [] # Default to empty list if not present
+
+    gptconf = GPTConfig(**gpt_model_config)
     model = GPT(gptconf)
     state_dict = checkpoint['model']
     unwanted_prefix = '_orig_mod.'
@@ -325,23 +524,67 @@ def main():
     if model.config.loop_groups: print(f"Loop groups: {model.config.loop_groups}")
 
     print(f"Loading tokenizer from {args.meta_path}...")
+    tokenizer_encode_fn = None
+    # Function that takes one ID and returns its string representation
+    tokenizer_decode_fn_for_single_id_to_str = None
+
     try:
-        with open(args.meta_path, 'rb') as f: meta = pickle.load(f)
-        stoi, itos = meta['stoi'], meta['itos']
-        encode = lambda s: [stoi[c] for c in s if c in stoi] 
-        decode = lambda l: ''.join([itos.get(i, '?') for i in l]) 
+        with open(args.meta_path, 'rb') as f:
+            meta = pickle.load(f)
+
+        # Try to use encode/decode methods from the loaded meta object first
+        # meta is a dictionary, so check for keys and then if the values are callable
+        if 'encode' in meta and callable(meta['encode']) and \
+           'decode' in meta and callable(meta['decode']):
+            print("Using encode/decode methods from meta.pkl (expected for BPE/SentencePiece).")
+            tokenizer_encode_fn = meta['encode'] # Should take string, return list of IDs
+            # meta.decode typically takes a list of IDs and returns a single string.
+            # For prompt_tokens_str, we need string for each token.
+            tokenizer_decode_fn_for_single_id_to_str = lambda token_id: meta['decode']([token_id])
+        else:
+            # Fallback to stoi/itos, assuming character-level if meta.encode/decode not found
+            print("Warning: meta.pkl does not provide .encode/.decode methods. "
+                  "Attempting to use 'stoi' and 'itos' from meta.pkl. "
+                  "This is likely character-level tokenization if 'encode'/'decode' are missing.")
+            if 'stoi' not in meta or 'itos' not in meta:
+                print(f"Error: meta.pkl is missing 'stoi'/'itos' and also "
+                      "lacks .encode/.decode methods. Cannot proceed with tokenization.")
+                return
+            
+            stoi, itos = meta['stoi'], meta['itos']
+            # This encode is character-by-character, as originally in the script
+            tokenizer_encode_fn = lambda s: [stoi[c] for c in s if c in stoi]
+            # This gets the string for a single ID
+            tokenizer_decode_fn_for_single_id_to_str = lambda token_id: itos.get(token_id, '?')
+
+    except FileNotFoundError:
+        print(f"Error: Tokenizer meta file not found at {args.meta_path}"); return
+    except pickle.UnpicklingError:
+        print(f"Error: Could not unpickle tokenizer meta file from {args.meta_path}"); return
     except Exception as e:
-        print(f"Error loading tokenizer: {e}"); return
+        print(f"Error loading or initializing tokenizer from {args.meta_path}: {e}"); return
+
+    if not tokenizer_encode_fn or not tokenizer_decode_fn_for_single_id_to_str:
+        print("Tokenizer functions not initialized. Exiting.")
+        return
 
     print(f"Tokenizing prompt: \"{args.prompt}\"")
-    input_ids = encode(args.prompt)
-    if not input_ids: print("Error: Could not tokenize prompt."); return
+    # Use the selected encode function
+    input_ids = tokenizer_encode_fn(args.prompt)
+
+    if not input_ids:
+        print("Error: Could not tokenize prompt (resulted in empty ID list)."); return
+    
     if len(input_ids) > model.config.block_size:
         input_ids = input_ids[:model.config.block_size]
-        print(f"Prompt truncated to {len(input_ids)} tokens.")
-    input_tensor = torch.tensor(input_ids, dtype=torch.long, device=device).unsqueeze(0) 
-    prompt_tokens_str = [decode([id_]) for id_ in input_ids]
+        print(f"Prompt truncated to {len(input_ids)} tokens to fit model block size {model.config.block_size}.")
+    
+    # Generate string representations for each token ID
+    prompt_tokens_str = [tokenizer_decode_fn_for_single_id_to_str(id_) for id_ in input_ids]
     print(f"Token IDs: {input_ids}, Strings: {prompt_tokens_str}")
+
+    # Convert IDs to tensor for the model
+    input_tensor = torch.tensor(input_ids, dtype=torch.long, device=device).unsqueeze(0)
 
     print("Getting loop representations...")
     with torch.no_grad():
@@ -368,7 +611,7 @@ def main():
         combined_plot_filename_2d = f"pca_trajectories_prompt_2D_pc{min(args.n_pca_components,2)}.png"
         combined_plot_filepath_2d = os.path.join(args.output_dir, combined_plot_filename_2d)
         print(f"Plotting combined 2D PCA trajectories to {combined_plot_filepath_2d}...")
-        plot_pca_trajectories_2d(reps_for_plotting_2d, prompt_tokens_str, combined_plot_filepath_2d)
+        plot_pca_trajectories_2d(reps_for_plotting_2d, prompt_tokens_str, combined_plot_filepath_2d, model_config=gptconf)
     else:
         print("Skipping 2D plots as n_pca_components < 2.")
 
@@ -378,7 +621,7 @@ def main():
         combined_plot_filename_3d = f"pca_trajectories_prompt_3D_pc{min(args.n_pca_components,3)}.png"
         combined_plot_filepath_3d = os.path.join(args.output_dir, combined_plot_filename_3d)
         print(f"Plotting combined 3D PCA trajectories to {combined_plot_filepath_3d}...")
-        plot_pca_trajectories_3d(reps_for_plotting_3d, prompt_tokens_str, combined_plot_filepath_3d)
+        plot_pca_trajectories_3d(reps_for_plotting_3d, prompt_tokens_str, combined_plot_filepath_3d, model_config=gptconf)
     else:
         print("Skipping 3D plots as n_pca_components < 3.")
 
@@ -395,21 +638,25 @@ def main():
         if args.n_pca_components >=2:
             filename_2d_full = f"token_{token_idx}_{sanitized_token_str}_pca_2D_full.png"
             filepath_2d_full = os.path.join(individual_plots_dir, filename_2d_full)
-            plot_single_token_pca_trajectory(transformed_reps_list, token_idx, token_str, filepath_2d_full, is_3d_plot=False, is_zoomed_view=False)
+            plot_single_token_pca_trajectory(transformed_reps_list, token_idx, token_str, filepath_2d_full, 
+                                             is_3d_plot=False, is_zoomed_view=False, model_config=gptconf)
             if num_available_loops > args.num_last_steps_for_zoom:
                 filename_2d_zoomed = f"token_{token_idx}_{sanitized_token_str}_pca_2D_zoomed_last{args.num_last_steps_for_zoom}.png"
                 filepath_2d_zoomed = os.path.join(individual_plots_dir, filename_2d_zoomed)
-                plot_single_token_pca_trajectory(transformed_reps_list, token_idx, token_str, filepath_2d_zoomed, is_3d_plot=False, is_zoomed_view=True, num_last_steps_to_zoom=args.num_last_steps_for_zoom)
+                plot_single_token_pca_trajectory(transformed_reps_list, token_idx, token_str, filepath_2d_zoomed, 
+                                                 is_3d_plot=False, is_zoomed_view=True, num_last_steps_to_zoom=args.num_last_steps_for_zoom, model_config=gptconf)
         
         # Individual 3D plots (full and zoomed)
         if args.n_pca_components >=3:
             filename_3d_full = f"token_{token_idx}_{sanitized_token_str}_pca_3D_full.png"
             filepath_3d_full = os.path.join(individual_plots_dir, filename_3d_full)
-            plot_single_token_pca_trajectory(transformed_reps_list, token_idx, token_str, filepath_3d_full, is_3d_plot=True, is_zoomed_view=False)
+            plot_single_token_pca_trajectory(transformed_reps_list, token_idx, token_str, filepath_3d_full, 
+                                             is_3d_plot=True, is_zoomed_view=False, model_config=gptconf)
             if num_available_loops > args.num_last_steps_for_zoom:
                 filename_3d_zoomed = f"token_{token_idx}_{sanitized_token_str}_pca_3D_zoomed_last{args.num_last_steps_for_zoom}.png"
                 filepath_3d_zoomed = os.path.join(individual_plots_dir, filename_3d_zoomed)
-                plot_single_token_pca_trajectory(transformed_reps_list, token_idx, token_str, filepath_3d_zoomed, is_3d_plot=True, is_zoomed_view=True, num_last_steps_to_zoom=args.num_last_steps_for_zoom)
+                plot_single_token_pca_trajectory(transformed_reps_list, token_idx, token_str, filepath_3d_zoomed, 
+                                                 is_3d_plot=True, is_zoomed_view=True, num_last_steps_to_zoom=args.num_last_steps_for_zoom, model_config=gptconf)
 
     print("Analysis complete.")
 

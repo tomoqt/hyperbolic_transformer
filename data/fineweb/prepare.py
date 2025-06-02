@@ -80,7 +80,9 @@ if __name__ == '__main__':
     meta = {
         'vocab_size': enc.n_vocab,
         'itos': {i: enc.decode([i]) for i in range(enc.n_vocab)},
-        'stoi': {enc.decode([i]): i for i in range(enc.n_vocab)}
+        'stoi': {enc.decode([i]): i for i in range(enc.n_vocab)},
+        'encode': enc.encode,
+        'decode': enc.decode
     }
     with open(os.path.join(os.path.dirname(__file__), 'meta.pkl'), 'wb') as f:
         pickle.dump(meta, f)

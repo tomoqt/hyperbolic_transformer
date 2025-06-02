@@ -10,12 +10,12 @@ log_interval = 1 # don't print too too often
 always_save_checkpoint = False
 
 wandb_log = True # override via command line if you like
-wandb_project = 'hyperbolic-shakespeare-char'
+wandb_project = 'looped-shakespeare-char'
 wandb_run_name = 'looped_shakespeare-char'
 
 dataset = 'shakespeare_char'
 gradient_accumulation_steps = 1
-batch_size = 64
+batch_size = 32
 block_size = 256 # context of up to 256 previous characters
 curvature = 1.0
 # baby GPT model :)
@@ -40,3 +40,9 @@ use_embedding_curvature = False
 # on macbook also add
 # device = 'cpu'  # run on cpu only
 # compile = False # do not torch compile the model
+# Looping configurations
+max_loops = 20
+loop_groups = [[2],[3],[4]] # Example: loop layers 2 and 3 (0-indexed)
+loop_noise_scale = 1.0
+concatenate_initial_representation = True
+loops_representation = False # For debugging/analysis

@@ -4,9 +4,9 @@ wandb_log = True
 wandb_project = 'fineweb-looped-small'
 wandb_run_name='looped-small'
 
-batch_size = 1
+batch_size = 12
 block_size = 512
-gradient_accumulation_steps =  8
+gradient_accumulation_steps =  1
 dataset = 'fineweb'
 max_iters = 60000
 lr_decay_iters = 60000
@@ -29,8 +29,8 @@ muon_nesterov = True
 muon_ns_steps = 5
 
 # Looping configurations
-max_loops = 30
-loop_groups = [[2,3],[4]] # Example: loop layers 2 and 3 (0-indexed)
+max_loops = 15
+loop_groups = [[2],[3],[4]] # Example: loop layers 2 and 3 (0-indexed)
 loop_noise_scale = 1.0
 concatenate_initial_representation = True
 loops_representation = False # For debugging/analysis

@@ -188,6 +188,7 @@ compile = True # use PyTorch 2.0 to compile the model to be faster
 # Looping specific configs - already in model.GPTConfig, but listed here for configurator.py
 # loop_groups = None # Will be defaulted below if init_from == 'scratch' and not set
 # loop_counts = None
+enable_auto_exit_eval = False # Whether to run automatic loop exit evaluation
 # -----------------------------------------------------------------------------
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str, type(None)))] # Added type(None) to catch loop_groups/counts if they are initially None
 exec(open('configurator.py').read()) # overrides from command line or config file
@@ -656,20 +657,18 @@ while True:
                 # "iter" is already in cycle_log_metrics from the main eval section
 
             # --- New: Automatic loop exit evaluation ---
-            auto_exit_threshold_eval = 1e-3
-            print(f"Running automatic loop exit evaluation with threshold {auto_exit_threshold_eval} for {fixed_loop_custom_iters} iterations.")
-            auto_exit_losses = estimate_loss(
-                eval_auto_exit=True, 
-                eval_auto_exit_threshold=auto_exit_threshold_eval,
-                custom_eval_iters=fixed_loop_custom_iters,
-                # We can also specify a fixed_loops_override here to cap the max loops for auto-exit evaluation
-                # For example, raw_model.config.max_loops or a specific number.
-                # If None, it will use the model's current max_loops setting per group from its config.
-                fixed_loops_override=raw_model.config.max_loops 
-            )
-            print(f"  step {iter_num}: val loss with auto_exit (threshold {auto_exit_threshold_eval}): {auto_exit_losses['val']:.4f}")
-            cycle_log_metrics[f"val/loss_auto_exit_thresh_{auto_exit_threshold_eval}"] = auto_exit_losses['val']
-            cycle_log_metrics[f"train/loss_auto_exit_thresh_{auto_exit_threshold_eval}"] = auto_exit_losses['train']
+            if enable_auto_exit_eval: # Check if auto exit evaluation is enabled
+                auto_exit_threshold_eval = 1e-3
+                print(f"Running automatic loop exit evaluation with threshold {auto_exit_threshold_eval} for {fixed_loop_custom_iters} iterations.")
+                auto_exit_losses = estimate_loss(
+                    eval_auto_exit=True, # Keep this True for the actual auto-exit logic when this block runs
+                    eval_auto_exit_threshold=auto_exit_threshold_eval,
+                    custom_eval_iters=fixed_loop_custom_iters,
+                    fixed_loops_override=raw_model.config.max_loops 
+                )
+                print(f"  step {iter_num}: val loss with auto_exit (threshold {auto_exit_threshold_eval}): {auto_exit_losses['val']:.4f}")
+                cycle_log_metrics[f"val/loss_auto_exit_thresh_{auto_exit_threshold_eval}"] = auto_exit_losses['val']
+                cycle_log_metrics[f"train/loss_auto_exit_thresh_{auto_exit_threshold_eval}"] = auto_exit_losses['train']
             # --- End: New automatic loop exit evaluation ---
 
         # Single log call for the entire cycle if wandb_log is enabled
