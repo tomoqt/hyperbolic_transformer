@@ -55,6 +55,7 @@ For more extensive training, prepare the OpenWebText dataset:
 python data/fineweb/prepare.py
 ```
 
+
 This downloads and tokenizes the OpenWebText dataset, creating `train.bin` and `val.bin` files with GPT-2 BPE tokenization.
 
 Both datasets are prepared to be used with the training scripts. For transformer block looping experiments, we can use these datasets to compare performance against baseline transformer architectures.
