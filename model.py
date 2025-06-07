@@ -217,11 +217,24 @@ class MixedBlock(nn.Module):
                                            embed_dim=config.n_embd,
                                            head_dim=config.n_embd // config.n_head,
                                            dropout=config.dropout)           # order-3
+        self.gate = nn.Linear(config.n_embd, 1)
+        self.top_k = getattr(config, 'hoa_top_k', None)
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp  = MLP(config)
+
     def forward(self, x):
         x = x + self.attn2(self.ln_1(x))
-        x = x + self.attn3(self.ln_hoa(x))
+        hoa_in = self.ln_hoa(x)
+        hoa_out = self.attn3(hoa_in)
+
+        scores = self.gate(hoa_in).squeeze(-1)
+        k = scores.size(1) if self.top_k is None else min(self.top_k, scores.size(1))
+        topk_idx = scores.topk(k, dim=-1).indices
+        mask = torch.zeros_like(scores, dtype=hoa_out.dtype)
+        mask.scatter_(1, topk_idx, 1.0)
+        mask = mask.unsqueeze(-1)
+
+        x = x + hoa_out * mask
         x = x + self.mlp(self.ln_2(x))
         return x
 
@@ -237,6 +250,7 @@ class GPTConfig:
     n_embd     : int  = 768
     dropout    : float = 0.0
     bias       : bool  = True
+    hoa_top_k  : int   = 8
 
 # ---------------------------------------------------------------------
 #  GPT model
