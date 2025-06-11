@@ -481,7 +481,7 @@ def main():
     parser.add_argument('--max_loops_override', type=int, default=None, help='Override model config max_loops')
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu', help='Device to use')
     parser.add_argument('--n_pca_components', type=int, default=2, help='Number of PCA components (2 or 3 for plotting)')
-    parser.add_argument('--max_new_tokens_for_analysis', type=int, default=1, help='Number of new tokens for representation collection trigger')
+    parser.add_argument('--max_new_tokens_for_analysis', type=int, default=10, help='Number of new tokens for representation collection trigger')
     parser.add_argument('--num_last_steps_for_zoom', type=int, default=15, help='Number of last loops for zoomed plots')
 
     args = parser.parse_args()

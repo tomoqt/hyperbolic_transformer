@@ -29,8 +29,8 @@ muon_nesterov = True
 muon_ns_steps = 5
 
 # Looping configurations
-max_loops = 11
-loop_groups = [[1],[2],[3],[4]] # Example: loop layers 2 and 3 (0-indexed)
+max_loops = 15
+loop_groups = [[1],[2],[3]] # Example: loop layers 2 and 3 (0-indexed)
 loop_noise_scale = 1.0
 concatenate_initial_representation = True
 loops_representation = False # For debugging/analysis
