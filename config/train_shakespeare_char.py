@@ -15,7 +15,7 @@ wandb_run_name = 'looped_shakespeare-char'
 
 dataset = 'shakespeare_char'
 gradient_accumulation_steps = 1
-batch_size = 32
+batch_size = 8
 block_size = 256 # context of up to 256 previous characters
 curvature = 1.0
 # baby GPT model :)

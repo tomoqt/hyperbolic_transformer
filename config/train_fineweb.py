@@ -18,9 +18,9 @@ dropout = 0.0
 eval_interval = 100
 eval_iters = 200
 log_interval = 10
-
+learning_rate = 1e-3
 # weight decay
-weight_decay = 1e-1
+weight_decay = 0.0
 
 use_muon = False
 muon_lr = 1e-3

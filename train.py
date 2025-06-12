@@ -136,6 +136,15 @@ class Muon(torch.optim.Optimizer):
             update_prev()
 
 # -----------------------------------------------------------------------------
+
+from model import spectral_hardcap
+
+@torch.no_grad()
+def spectral_clip_(module, beta: float = 1.0, ns_steps: int = 5):
+    if isinstance(module, nn.Linear):
+        module.weight.data = spectral_hardcap(module.weight.data, beta=beta)
+
+# -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
 # I/O
 out_dir = 'out'
@@ -161,6 +170,7 @@ n_embd = 768
 dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
 use_baseline_model = False # whether to use the baseline model from model_baseline.py
+spectral_clip_beta = 1.0 # beta for spectral clipping, 0.0 to disable
 # adamw optimizer
 learning_rate = 6e-4 # max learning rate
 max_iters = 600000 # total number of training iterations
@@ -739,6 +749,13 @@ while True:
     else:
         scaler.step(optimizer)
     scaler.update()
+    
+    # spectral clipping
+    if not use_baseline_model and spectral_clip_beta > 0.0:
+        def clip_fn(m):
+            spectral_clip_(m, beta=spectral_clip_beta, ns_steps=muon_ns_steps)
+        raw_model.apply(clip_fn)
+
     # flush the gradients as soon as we can, no need for this memory anymore
     if use_muon and isinstance(optimizer, list):
         optimizer[0].zero_grad(set_to_none=True)

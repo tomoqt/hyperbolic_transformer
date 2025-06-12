@@ -26,6 +26,53 @@ class LayerNorm(nn.Module):
     def forward(self, input):
         return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
 
+
+def _orthogonalize_via_ns(G, steps: int=5):
+    """
+    Newton-Schulz iteration to compute the zeroth power / orthogonalization of G. We opt to use a
+    quintic iteration whose coefficients are selected to maximize the slope at zero. For the purpose
+    of minimizing steps, it turns out to be empirically effective to keep increasing the slope at
+    zero even beyond the point where the iteration no longer converges all the way to one everywhere
+    on the interval. This iteration therefore does not produce UV^T but rather something like US'V^T
+    where S' is diagonal with S_{ii}' ~ Uniform(0.5, 1.5), which turns out not to hurt model
+    performance at all relative to UV^T, where USV^T = G is the SVD.
+    """
+    assert G.ndim >= 2 # batched Muon implementation by @scottjmaddox, and put into practice in the record by @YouJiacheng
+    a, b, c = (3.4445, -4.7750,  2.0315)
+    X = G.to(torch.float16)
+    if G.size(-2) > G.size(-1):
+        X = X.mT
+
+    # Ensure spectral norm is at most 1
+    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    # Perform the NS iterations
+    for _ in range(steps):
+        A = X @ X.mT
+        B = b * A + c * A @ A # quintic computation strategy adapted from suggestion by @jxbz, @leloykun, and @YouJiacheng
+        X = a * X + B @ X
+    
+    if G.size(-2) > G.size(-1):
+        X = X.mT
+    return X
+
+def spectral_hardcap(W: torch.Tensor, beta: float = 1.0):
+    """
+    Hard-caps the singular values of a matrix W to be at most beta.
+    """
+    if flip := (W.shape[0] > W.shape[1]):
+        W = W.T
+
+    W_fp16 = W.to(torch.float16)
+    OW = _orthogonalize_via_ns(W_fp16)
+    aW = beta * OW - W_fp16
+    result = 0.5 * (beta * OW + W_fp16 - aW @ _orthogonalize_via_ns(aW).T @ OW)
+    result = result.to(W.dtype)
+
+    if flip:
+        result = result.T
+    return result
+
+
 class CausalSelfAttention(nn.Module):
 
     def __init__(self, config):
@@ -80,13 +127,13 @@ class MLP(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.c_fc    = nn.Linear(config.n_embd, 4 * config.n_embd, bias=config.bias)
-        self.silu    = nn.SiLU()
+        self.gelu    = nn.GELU()
         self.c_proj  = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
 
     def forward(self, x):
         x = self.c_fc(x)
-        x = self.silu(x)
+        x = self.gelu(x)
         x = self.c_proj(x)
         x = self.dropout(x)
         return x
@@ -95,34 +142,14 @@ class Block(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.rms_norm_attn_input = nn.RMSNorm(config.n_embd)
+        self.ln_1 = LayerNorm(config.n_embd, bias=config.bias)
         self.attn = CausalSelfAttention(config)
-
-        self.rms_norm_attn_output = nn.RMSNorm(config.n_embd)
-        
-       # self.rms_norm_mlp_input = nn.RMSNorm(config.n_embd) #redundant, mainly here for reference as sandwhich
+        self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
-        self.rms_norm_mlp_output = nn.RMSNorm(config.n_embd)
 
     def forward(self, x):
-        # Original structure: attn_output = self.attn(torch.nn.RMSNorm(x))
-        attn_input_normalized = self.rms_norm_attn_input(x)
-        attn_output = self.attn(attn_input_normalized)
-        
-        # Original structure: x = x + torch.nn.RMSNorm(attn_output)
-        # The residual connection adds the *normalized* output of the attention block.
-        attn_output_normalized = self.rms_norm_attn_output(attn_output)
-        x = x + attn_output_normalized
-        
-        # Original structure: mlp_output = self.mlp(torch.nn.RMSNorm(x))
-        # Note: x here is the original x plus the normalized attention output.
-        # mlp_input_normalized = self.rms_norm_mlp_input(x) #redundant, mainly here for reference as sandwhich
-        mlp_output = self.mlp(x)
-        
-        # Original structure: x = x + torch.nn.RMSNorm(mlp_output)
-        # The residual connection adds the *normalized* output of the MLP block.
-        mlp_output_normalized = self.rms_norm_mlp_output(mlp_output)
-        x = x + mlp_output_normalized
+        x = x + self.attn(self.ln_1(x))
+        x = x + self.mlp(self.ln_2(x))
         return x
 
 @dataclass
@@ -144,7 +171,7 @@ class GPTConfig:
     max_loops: int = 30
     effective_n_layer: float = None # Effective number of layers considering loops
     automatic_loop_exit: bool = False # Flag to automatically exit loops based on convergence of representations
-    automatic_loop_exit_threshold: float = 0.01 # Threshold for automatic loop exit
+    automatic_loop_exit_threshold: float = 0.001 # Threshold for automatic loop exit
 
 class GPT(nn.Module):
 
@@ -185,10 +212,9 @@ class GPT(nn.Module):
         # init all weights
         self.apply(self._init_weights)
         # apply special scaled init to the residual projections, per GPT-2 paper
-        # for pn, p in self.named_parameters():
-        #     if pn.endswith('c_proj.weight'):
-        #         torch.nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * config.n_layer))
-        # The above loop is removed as requested, c_proj.weight will be handled by _init_weights
+        for pn, p in self.named_parameters():
+            if pn.endswith('c_proj.weight'):
+                torch.nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * config.n_layer))
 
         # report number of parameters
         print("number of parameters: %.2fM" % (self.get_num_params()/1e6,))
@@ -207,31 +233,11 @@ class GPT(nn.Module):
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
-            if module is self.lm_head:
-                # Variance for lm_head: 1 / (5 * n_embd * effective_n_layer)
-                if self.config.effective_n_layer is not None and self.config.effective_n_layer > 0:
-                    variance = 1.0 / (5 * self.config.n_embd * self.config.effective_n_layer)
-                else:
-                    # Fallback if effective_n_layer is not available or invalid (e.g. during from_pretrained without this field)
-                    # Using a small default variance, similar to original 0.02 std for general layers
-                    variance = (0.02**2) / self.config.n_layer # Heuristic, adjust if needed
-                    print(f"Warning: effective_n_layer not available for lm_head init. Using fallback variance {variance}")
-
-                std = math.sqrt(variance)
-                torch.nn.init.normal_(module.weight, mean=0.0, std=std)
-            else:
-                # Variance for other Linear layers: 2 / (5 * n_embd)
-                variance = 2.0 / (5 * self.config.n_embd)
-                std = math.sqrt(variance)
-                torch.nn.init.normal_(module.weight, mean=0.0, std=std)
-            
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
             if module.bias is not None:
                 torch.nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
-            # Variance for Embedding layers: 2 / (5 * n_embd)
-            variance = 2.0 / (5 * self.config.n_embd)
-            std = math.sqrt(variance)
-            torch.nn.init.normal_(module.weight, mean=0.0, std=std)
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(self, idx, targets=None):
         device = idx.device
