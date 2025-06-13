@@ -256,7 +256,9 @@ def get_batch(split):
     else:
         data = np.memmap(os.path.join(data_dir, 'val.bin'), dtype=np.uint16, mode='r')
 
-    if not predict_ahead:
+    use_predict_ahead_for_batch = predict_ahead and split == 'train'
+
+    if not use_predict_ahead_for_batch:
         ix = torch.randint(len(data) - block_size, (batch_size,))
         x_list = [(data[i:i+block_size]).astype(np.int64) for i in ix]
         y_list = [(data[i+1:i+1+block_size]).astype(np.int64) for i in ix]
@@ -474,7 +476,13 @@ if ddp:
 def estimate_loss():
     out = {}
     model.eval()
+    
+    original_predict_ahead = raw_model.config.predict_ahead
+
     for split in ['train', 'val']:
+        if split == 'val' and original_predict_ahead:
+            raw_model.config.predict_ahead = False
+
         losses = torch.zeros(eval_iters)
         for k in range(eval_iters):
             X, Y = get_batch(split)
@@ -482,6 +490,10 @@ def estimate_loss():
                 logits, loss = model(X, Y)
             losses[k] = loss.item()
         out[split] = losses.mean()
+
+        if split == 'val' and original_predict_ahead:
+            raw_model.config.predict_ahead = original_predict_ahead
+
     model.train()
     return out
 
