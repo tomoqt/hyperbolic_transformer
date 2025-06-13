@@ -73,6 +73,28 @@ python train.py config/train_fineweb.py --use_model_baseline=True
 
 (this can also be compiled)
 
+## Multi-Token Prediction Experiment
+
+This project also includes an experiment for pre-training with multi-token prediction. Instead of always predicting the very next token, the model is trained to predict a token that is `s` steps ahead, where `s` is a shift that is dynamically sampled during training.
+
+### How it Works
+
+*   **Label Shifting**: For each training sequence, a `shift` value `s` is sampled from a geometric distribution. This makes smaller shifts (like `s=1`) more common, while still allowing for a "fat tail" of larger shifts. The maximum shift is configurable.
+*   **Conditioning on the Shift**: The model is informed of the `shift` `s` for a given sequence by prepending a special token, `<s>`, to the input. There is a unique token for each possible shift value up to `max_shift`.
+*   **Training**: The model learns to use the `<s>` token to adjust its predictions. For an input sequence `[<s>, t_1, t_2, ...]`, the model is trained to predict the target sequence `[t_{1+s}, t_{2+s}, ...]`.
+
+This approach encourages the model to learn more about longer-term dependencies in the data.
+
+### Usage
+
+To enable multi-token prediction during training, set the `predict_ahead` flag:
+
+```sh
+python train.py config/train_fineweb.py --predict_ahead=True
+```
+
+You can adjust the `max_shift` and `label_shift_prob` parameters in `train.py` to control the behavior of the shift sampling.
+
 ## Acknowledgements
 
 - Original code based on [nanoGPT](https://github.com/karpathy/nanoGPT) by Andrej Karpathy

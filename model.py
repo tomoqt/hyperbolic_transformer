@@ -26,53 +26,6 @@ class LayerNorm(nn.Module):
     def forward(self, input):
         return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
 
-
-def _orthogonalize_via_ns(G, steps: int=5):
-    """
-    Newton-Schulz iteration to compute the zeroth power / orthogonalization of G. We opt to use a
-    quintic iteration whose coefficients are selected to maximize the slope at zero. For the purpose
-    of minimizing steps, it turns out to be empirically effective to keep increasing the slope at
-    zero even beyond the point where the iteration no longer converges all the way to one everywhere
-    on the interval. This iteration therefore does not produce UV^T but rather something like US'V^T
-    where S' is diagonal with S_{ii}' ~ Uniform(0.5, 1.5), which turns out not to hurt model
-    performance at all relative to UV^T, where USV^T = G is the SVD.
-    """
-    assert G.ndim >= 2 # batched Muon implementation by @scottjmaddox, and put into practice in the record by @YouJiacheng
-    a, b, c = (3.4445, -4.7750,  2.0315)
-    X = G.to(torch.float16)
-    if G.size(-2) > G.size(-1):
-        X = X.mT
-
-    # Ensure spectral norm is at most 1
-    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
-    # Perform the NS iterations
-    for _ in range(steps):
-        A = X @ X.mT
-        B = b * A + c * A @ A # quintic computation strategy adapted from suggestion by @jxbz, @leloykun, and @YouJiacheng
-        X = a * X + B @ X
-    
-    if G.size(-2) > G.size(-1):
-        X = X.mT
-    return X
-
-def spectral_hardcap(W: torch.Tensor, beta: float = 1.0):
-    """
-    Hard-caps the singular values of a matrix W to be at most beta.
-    """
-    if flip := (W.shape[0] > W.shape[1]):
-        W = W.T
-
-    W_fp16 = W.to(torch.float16)
-    OW = _orthogonalize_via_ns(W_fp16)
-    aW = beta * OW - W_fp16
-    result = 0.5 * (beta * OW + W_fp16 - aW @ _orthogonalize_via_ns(aW).T @ OW)
-    result = result.to(W.dtype)
-
-    if flip:
-        result = result.T
-    return result
-
-
 class CausalSelfAttention(nn.Module):
 
     def __init__(self, config):
@@ -161,17 +114,10 @@ class GPTConfig:
     n_embd: int = 768
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
-    
-    # Looping configuration
-    loop_groups: list[list[int]] = None # Defines groups of layer indices to be looped together. E.g., [[0,1],[3]]. If None, default behavior (e.g. innermost layer) is handled by training script.
-    loop_counts: list[int] = None # Number of loops for each group in loop_groups. If None or entry <=0, max_loops is used for that group.
-    loop_noise_scale: float = 1.0 # Scale for Gaussian noise added in the first multi-loop iteration of a group (0.0 means no noise)
-    concatenate_initial_representation: bool = True # Concatenate initial representation before looping, instead of summing to residual stream, and adapt it
-    loops_representation: bool = False # Flag to track and return representations across loops (for debugging/analysis)
-    max_loops: int = 30
-    effective_n_layer: float = None # Effective number of layers considering loops
-    automatic_loop_exit: bool = False # Flag to automatically exit loops based on convergence of representations
-    automatic_loop_exit_threshold: float = 0.001 # Threshold for automatic loop exit
+    # multi-token prediction
+    predict_ahead: bool = False # whether to use multi-token prediction
+    max_shift: int = 10 # maximum shift for multi-token prediction
+    label_shift_prob: float = 0.5 # probability for geometric distribution of shifts
 
 class GPT(nn.Module):
 
@@ -194,20 +140,6 @@ class GPT(nn.Module):
         # This behavior is deprecated and will be an error in future versions"
         # not 100% sure what this is, so far seems to be harmless. TODO investigate
         self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying
-
-        self.concatenate_initial_representation = config.concatenate_initial_representation
-        # Store effective_n_layer for initialization
-        # self.effective_n_layer = config.effective_n_layer # Will be available via self.config.effective_n_layer
-
-        if self.concatenate_initial_representation:
-            # Adjust adapter input dimension based on whether noise is added
-            adapter_input_dim = 2 * self.config.n_embd if self.config.loop_noise_scale > 0.0 else self.config.n_embd
-            self.initial_representation_adapter = nn.Linear(adapter_input_dim, self.config.n_embd)
-            # Note: If noise is added, the first iteration uses 2*n_embd, subsequent iterations use n_embd + n_embd = 2*n_embd.
-            # If no noise, the first iteration uses n_embd, subsequent use n_embd + n_embd = 2*n_embd.
-            # A single adapter might be insufficient. Let's refine this logic later if needed.
-            # For now, let's assume the adapter handles 2*n_embd, and we adjust the first iteration input if no noise.
-            self.initial_representation_adapter = nn.Linear(2 * self.config.n_embd, self.config.n_embd)
 
         # init all weights
         self.apply(self._init_weights)
@@ -248,149 +180,9 @@ class GPT(nn.Module):
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
-        
-        # Scale by sqrt(n_embd) and then apply dropout
-        x = (tok_emb + pos_emb) * math.sqrt(self.config.n_embd)
-        x = self.transformer.drop(x)
-
-        loop_representations = [] if self.config.loops_representation else None
-        
-        processed_in_loop_group = [False] * self.config.n_layer
-
-        current_layer_idx = 0
-        while current_layer_idx < self.config.n_layer:
-            if processed_in_loop_group[current_layer_idx]:
-                current_layer_idx += 1
-                continue
-
-            current_group_indices = None
-            is_part_of_defined_group = False
-            num_loops_for_this_group = 1 # Default to 1 pass (no actual looping)
-
-            if self.config.loop_groups:
-                for group_config_idx, group in enumerate(self.config.loop_groups):
-                    if group and current_layer_idx == group[0]: # Check if current layer is the start of this group
-                        # Validate group indices
-                        assert all(0 <= idx < self.config.n_layer for idx in group), f"Invalid layer index in group {group}"
-                        assert all(group[i] < group[i+1] for i in range(len(group)-1)), f"Layer indices in a group must be sorted and unique: {group}"
-                        current_group_indices = group
-                        is_part_of_defined_group = True
-
-                        # Determine the number of loops for this specific group
-                        if hasattr(self.config, 'sampled_group_loop_counts') and self.config.sampled_group_loop_counts and group_config_idx < len(self.config.sampled_group_loop_counts):
-                            num_loops_for_this_group = self.config.sampled_group_loop_counts[group_config_idx]
-                        else:
-                            # Fallback to original logic if sampled counts are not available
-                            num_loops_for_this_group = self.config.max_loops # Start with global max_loops
-                            if self.config.loop_counts and group_config_idx < len(self.config.loop_counts):
-                                count_val = self.config.loop_counts[group_config_idx]
-                                if count_val > 0:
-                                    num_loops_for_this_group = count_val
-                                else: # If loop_counts specifies <= 0, it means 1 pass for this group
-                                    num_loops_for_this_group = 1 
-                            elif not self.config.loop_counts: # If loop_counts is None, all groups use max_loops
-                                pass # num_loops_for_this_group is already max_loops
-                            else: # loop_counts is provided, but this group_config_idx is out of bounds
-                                pass 
-                        break 
-            
-            if is_part_of_defined_group: # current_group_indices will be set
-               # print(f"Processing group {current_group_indices} with {num_loops_for_this_group} iteration(s).")
-                
-                for i in current_group_indices:
-                    processed_in_loop_group[i] = True
-
-                x_original_group_input = x.clone()
-                current_loop_iteration_input = x_original_group_input
-                prev_diff_norm_for_group = None # For automatic loop exit calculation
-
-                for loop_iter_idx in range(num_loops_for_this_group):
-                    x_pass_input = current_loop_iteration_input
-
-                    # Apply noise ONLY if actually looping (num_loops > 1) and it's the first iteration
-                    if num_loops_for_this_group > 1 and loop_iter_idx == 0 and self.config.loop_noise_scale > 0.0:
-                        # noise = torch.randn_like(x_pass_input) * self.config.loop_noise_scale
-                        # New noise initialization with specified variance
-                        variance_noise = 2.0 / (5 * self.config.n_embd)
-                        std_noise = math.sqrt(variance_noise)
-                        noise = torch.randn_like(x_pass_input) * std_noise * self.config.loop_noise_scale
-                        
-                        if self.concatenate_initial_representation:
-                            x_pass_input = torch.cat([x_original_group_input, noise], dim=-1)
-                        else:
-                            x_pass_input = x_pass_input + noise
-                    # Adapt residual for subsequent multi-loop iterations
-                    elif num_loops_for_this_group > 1 and loop_iter_idx > 0:
-                        if self.concatenate_initial_representation:
-                            x_pass_input = torch.cat([x_original_group_input, x_pass_input], dim=-1) # x_pass_input is previous loop's output
-                        else:
-                            x_pass_input = x_original_group_input + x_pass_input # x_pass_input is previous loop's output
-                    
-                    # Adapt dimensionality if concatenation is on
-                    needs_adapter = False
-                    if self.concatenate_initial_representation:
-                        # Case 1: Single effective pass (num_loops_for_this_group == 1). No noise applied above.
-                        # We duplicate input to match adapter's 2*n_embd expectation.
-                        if num_loops_for_this_group == 1:
-                             x_pass_input = torch.cat([x_pass_input, x_pass_input], dim=-1)
-                             needs_adapter = True
-                        # Case 2: Multi-loop (num_loops_for_this_group > 1)
-                        elif num_loops_for_this_group > 1:
-                            if loop_iter_idx == 0 and self.config.loop_noise_scale == 0.0: # First multi-loop iter, no noise
-                                x_pass_input = torch.cat([x_pass_input, x_pass_input], dim=-1)
-                                needs_adapter = True
-                            elif loop_iter_idx > 0 or (loop_iter_idx == 0 and self.config.loop_noise_scale > 0.0): # Subsequent or first-with-noise
-                                needs_adapter = True 
-                    
-                    if needs_adapter:
-                        x_pass_input = self.initial_representation_adapter(x_pass_input)
-
-                    # --- Pass through the layers in the current group ---
-                    x_input_to_group_layers_this_iter = x_pass_input.clone() # For diff calculation
-                    x_intermediate_in_group = x_pass_input
-                    for layer_idx_in_group in current_group_indices:
-                        x_intermediate_in_group = self.transformer.h[layer_idx_in_group](x_intermediate_in_group)
-                    x_group_output_this_iter = x_intermediate_in_group
-                    # --- End Group Pass ---
-                    
-                    current_loop_iteration_input = x_group_output_this_iter # Update before potential break
-
-                    if self.config.loops_representation: # Store representation ONLY from within an active loop group iteration
-                        loop_representations.append(current_loop_iteration_input.clone())
-
-                    # Automatic loop exit logic
-                    if self.config.automatic_loop_exit and num_loops_for_this_group > 1 and b == 1:
-                        # Calculate L2 norm of (output - input) for the current group pass,
-                        # then mean over sequence and batch for a scalar.
-                        current_iter_change_norm_tensor = torch.norm(x_group_output_this_iter - x_input_to_group_layers_this_iter, p=2, dim=-1) # (B, T)
-                        current_iter_change_norm = current_iter_change_norm_tensor.mean(dim=-1) # Scalar
-
-                        if prev_diff_norm_for_group is not None and loop_iter_idx > 0: # Need at least two norms to compare
-                            diff_of_diffs = torch.abs(current_iter_change_norm - prev_diff_norm_for_group)
-                            if diff_of_diffs < self.config.automatic_loop_exit_threshold:
-                                # print(f"DEBUG: Auto exiting loop for group {current_group_indices} at iter {loop_iter_idx+1}/{num_loops_for_this_group}. Diff of diffs: {diff_of_diffs.item()}")
-                                break # Exit this group's loop
-                        
-                        prev_diff_norm_for_group = current_iter_change_norm
-                    elif self.config.automatic_loop_exit and num_loops_for_this_group > 1 and b > 1:
-                        if loop_iter_idx == 0: # Print warning only once per group if condition met
-                            print(f"Warning: Batch size ({b}) > 1. Automatic loop exit is disabled for group {current_group_indices} to prevent potential tensor ambiguity. Loop will run for {num_loops_for_this_group} iterations.")
-                    
-                    # No automatic exit, loop runs for num_loops_for_this_group iterations
-                    # The standard for loop handles exit if not broken early.
-                    # if loop_iter_idx == num_loops_for_this_group - 1:
-                    #    break # This is redundant due to the for loop's natural termination
-                
-                x = current_loop_iteration_input # Final output after all iterations (or early exit) for this group
-                current_layer_idx = current_group_indices[-1] + 1
-            
-            else:
-                # --- Normal Processing for a single layer (not in a defined group or loop_groups is None) ---
-                x = self.transformer.h[current_layer_idx](x)
-                # if self.config.loops_representation: # Removed: No longer collect reps for single-pass non-grouped layers
-                #     loop_representations.append(x.clone())
-                current_layer_idx += 1
-        
+        x = self.transformer.drop(tok_emb + pos_emb)
+        for block in self.transformer.h:
+            x = block(x)
         x = self.transformer.ln_f(x)
 
         if targets is not None:
@@ -402,10 +194,7 @@ class GPT(nn.Module):
             logits = self.lm_head(x[:, [-1], :]) # note: using list [-1] to preserve the time dim
             loss = None
 
-        if self.config.loops_representation:
-            return logits, loss, loop_representations
-        else:
-            return logits, loss
+        return logits, loss
 
     def crop_block_size(self, block_size):
         # model surgery to decrease the block size if necessary
@@ -518,50 +307,23 @@ class GPT(nn.Module):
         return mfu
 
     @torch.no_grad()
-    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, return_first_step_loop_reps=False):
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, shift=None):
         """
         Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
         the sequence max_new_tokens times, feeding the predictions back into the model each time.
         Most likely you'll want to make sure to be in model.eval() mode of operation for this.
-        If return_first_step_loop_reps is True and config.loops_representation is True,
-        this will also return the loop representations from the very first forward pass used for generation.
         """
-        first_step_loop_reps_collected = None
-        initial_call_for_reps = True # Flag to capture reps only on the first meaningful call
+        if shift is not None:
+            # prepend the shift token
+            shift_token = self.config.vocab_size - self.config.max_shift + shift - 1
+            idx_shift = torch.tensor([[shift_token]], dtype=torch.long, device=idx.device)
+            idx = torch.cat((idx_shift, idx), dim=1)
 
         for _ in range(max_new_tokens):
             # if the sequence context is growing too long we must crop it at block_size
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
-            
-            current_loop_reps_for_this_step = None # Initialize for this iteration
             # forward the model to get the logits for the index in the sequence
-            if self.config.loops_representation:
-                output_from_forward = self(idx_cond)
-                # Ensure output_from_forward is a tuple and has 3 elements as expected
-                if isinstance(output_from_forward, tuple) and len(output_from_forward) == 3:
-                    logits, _, current_loop_reps_for_this_step = output_from_forward
-                else:
-                    # This case should ideally not be reached if config.loops_representation is True
-                    # and the model's forward pass behaves as expected.
-                    print("Warning: GPT.forward() did not return 3 values (logits, loss, loop_reps) even though config.loops_representation is True.")
-                    # Attempt to gracefully handle cases where only (logits, loss) or just logits are returned.
-                    if isinstance(output_from_forward, tuple) and len(output_from_forward) >= 1:
-                        logits = output_from_forward[0]
-                    else: # If it's just a tensor (logits)
-                        logits = output_from_forward
-                    # current_loop_reps_for_this_step remains None
-            else: # If loops_representation is False
-                output_from_forward = self(idx_cond)
-                if isinstance(output_from_forward, tuple) and len(output_from_forward) >= 1:
-                    logits = output_from_forward[0]
-                else:
-                    logits = output_from_forward
-                # current_loop_reps_for_this_step remains None
-            
-            if return_first_step_loop_reps and initial_call_for_reps and current_loop_reps_for_this_step is not None:
-                first_step_loop_reps_collected = current_loop_reps_for_this_step
-                initial_call_for_reps = False # Avoid re-capturing on subsequent generation steps
-            
+            logits, _ = self(idx_cond)
             # pluck the logits at the final step and scale by desired temperature
             logits = logits[:, -1, :] / temperature
             # optionally crop the logits to only the top k options
@@ -575,9 +337,4 @@ class GPT(nn.Module):
             # append sampled index to the running sequence and continue
             idx = torch.cat((idx, idx_next), dim=1)
 
-        # If max_new_tokens is 0, the loop doesn't run, and first_step_loop_reps_collected remains None.
-        # This is acceptable; representations are tied to a generation step.
-        if return_first_step_loop_reps:
-            return idx, first_step_loop_reps_collected
-        else:
-            return idx
+        return idx
