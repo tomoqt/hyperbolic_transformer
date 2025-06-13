@@ -19,13 +19,13 @@ This project aims to implement and evaluate transformers capable of looping spec
     *   Optionally concatenating the initial pre-loop group representation with the previous iteration's output (or noise for the first iteration) and adapting it back to the required dimension (`concatenate_initial_representation`).
     *   Alternatively, adding the initial pre-loop group representation to the previous iteration's output.
 *   **Noise Injection:** Optionally adding scaled Gaussian noise during the first loop iteration of a group if it's looped multiple times (`loop_noise_scale`). The variance of this noise is based on `2 / (5 * n_embd)`.
-*   **Specialized Initialization:**
-    *   Scaling the sum of token and position embeddings by `sqrt(n_embd)`.
-    *   Initializing `nn.Linear` (excluding the final LM head) and `nn.Embedding` weights from a Normal distribution with variance `2 / (5 * n_embd)`.
-    *   Initializing the final `lm_head` weights from a Normal distribution with variance `1 / (5 * n_embd * effective_n_layer)`, where `effective_n_layer` accounts for the expected number of layer passes due to looping.
+*   **Spectral Clipping:**
+    *   Using spectral clipping to control the singular values of weight matrices, ensuring they don't exceed a specified threshold (`spectral_clip_beta`).
+    *   This is implemented using a Newton-Schulz iteration for efficient orthogonalization.
 *   **Analysis & Evaluation:**
     *   Providing tools to track representations across loops for analysis (`loops_representation`).
     *   Evaluating the model not only with sampled loop counts but also with fixed loop counts (e.g., 1, 5, 15, 30 loops) during validation to understand performance sensitivity to loop depth.
+    *   Supporting automatic loop exit based on representation convergence (`automatic_loop_exit` and `automatic_loop_exit_threshold`).
 
 The goal is to understand the impact of these looping mechanisms on training dynamics and model capabilities compared to standard transformer architectures.
 
@@ -55,18 +55,21 @@ For more extensive training, prepare the OpenWebText dataset:
 python data/fineweb/prepare.py
 ```
 
-
 This downloads and tokenizes the OpenWebText dataset, creating `train.bin` and `val.bin` files with GPT-2 BPE tokenization.
 
 Both datasets are prepared to be used with the training scripts. For transformer block looping experiments, we can use these datasets to compare performance against baseline transformer architectures.
 
-to train, simply run:
+To train, simply run:
 
+```sh
 python train.py config/train_fineweb.py --compile=False 
+```
 
-you can also run the baseline by simply doing
+You can also run the baseline by simply doing:
 
+```sh
 python train.py config/train_fineweb.py --use_model_baseline=True
+```
 
 (this can also be compiled)
 
