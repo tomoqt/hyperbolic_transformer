@@ -1,8 +1,8 @@
 
 
 wandb_log = True
-wandb_project = 'fineweb-looped-small'
-wandb_run_name='looped-small'
+wandb_project = 'fineweb-MTP'
+wandb_run_name='MTP-small'
 
 batch_size = 12
 block_size = 512
@@ -20,7 +20,7 @@ eval_iters = 200
 log_interval = 10
 learning_rate = 1e-3
 # weight decay
-weight_decay = 0.0
+weight_decay = 0.1
 
 use_muon = False
 muon_lr = 1e-3

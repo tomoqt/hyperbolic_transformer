@@ -253,8 +253,15 @@ def get_batch(split):
 
     if not predict_ahead:
         ix = torch.randint(len(data) - block_size, (batch_size,))
-        x = torch.stack([torch.from_numpy((data[i:i+block_size]).astype(np.int64)) for i in ix])
-        y = torch.stack([torch.from_numpy((data[i+1:i+1+block_size]).astype(np.int64)) for i in ix])
+        x_list = [(data[i:i+block_size]).astype(np.int64) for i in ix]
+        y_list = [(data[i+1:i+1+block_size]).astype(np.int64) for i in ix]
+        # Filter out invalid tokens by replacing them with padding token 0
+        vocab_size_limit = meta_vocab_size if meta_vocab_size is not None else 50257
+        for i in range(batch_size):
+            x_list[i] = np.where(x_list[i] >= vocab_size_limit, 0, x_list[i])
+            y_list[i] = np.where(y_list[i] >= vocab_size_limit, 0, y_list[i])
+        x = torch.stack([torch.from_numpy(arr) for arr in x_list])
+        y = torch.stack([torch.from_numpy(arr) for arr in y_list])
     else:
         # sample shifts from a geometric distribution
         shifts = np.random.geometric(p=label_shift_prob, size=(batch_size,))
@@ -265,14 +272,19 @@ def get_batch(split):
         ix = torch.randint(max_start_idx, (batch_size,))
         
         x_list, y_list = [], []
+        vocab_size_limit = meta_vocab_size if meta_vocab_size is not None else 50257
         for i, shift in zip(ix, shifts):
             # sequence for input
             x_seq = data[i : i + block_size - 1]
             # target sequence is shifted
             y_seq = data[i + shift : i + shift + block_size - 1]
             
+            # Filter out invalid tokens by replacing them with padding token 0
+            x_seq = np.where(x_seq >= vocab_size_limit, 0, x_seq)
+            y_seq = np.where(y_seq >= vocab_size_limit, 0, y_seq)
+            
             # prepend shift token to x
-            shift_token = meta_vocab_size + shift - 1
+            shift_token = vocab_size_limit + shift - 1
             x_full = np.concatenate(([shift_token], x_seq)).astype(np.int64)
             
             # prepend ignore token to y
