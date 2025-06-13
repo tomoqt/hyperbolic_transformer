@@ -180,7 +180,7 @@ warmup_iters = 2000 # how many steps to warm up for
 lr_decay_iters = 600000 # should be ~= max_iters per Chinchilla
 min_lr = 6e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
 # multi-token prediction
-predict_ahead = False # whether to use multi-token prediction
+predict_ahead = True # whether to use multi-token prediction
 max_shift = 10 # maximum shift for multi-token prediction
 label_shift_prob = 0.5 # probability for geometric distribution of shifts
 # DDP settings
@@ -192,6 +192,11 @@ compile = True # use PyTorch 2.0 to compile the model to be faster
 # -----------------------------------------------------------------------------
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
 exec(open('configurator.py').read()) # overrides from command line or config file
+
+# Disable multi-token prediction for baseline model
+if use_baseline_model and predict_ahead:
+    print("Multi-token prediction is not supported for the baseline model. Disabling.")
+    predict_ahead = False
 
 # Set output directory based on model type
 out_dir = 'out_baseline' if use_baseline_model else 'out_hyperbolic'
