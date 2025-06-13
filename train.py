@@ -182,7 +182,7 @@ min_lr = 6e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchi
 # multi-token prediction
 predict_ahead = True # whether to use multi-token prediction
 max_shift = 10 # maximum shift for multi-token prediction
-label_shift_prob = 0.5 # probability for geometric distribution of shifts
+label_shift_prob = 0.8 # probability for geometric distribution of shifts
 # DDP settings
 backend = 'nccl' # 'nccl', 'gloo', etc.
 # system
