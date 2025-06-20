@@ -1,7 +1,6 @@
 # saves the fineweb dataset to binary files for training, with caching from huggingface
 
 import os
-import sys
 import numpy as np
 import tiktoken
 from huggingface_hub import hf_hub_download
@@ -28,64 +27,72 @@ def process_binary_file(file_path):
     return data.tolist()
 
 if __name__ == '__main__':
+    import sys
     # Create local directory if it doesn't exist
     local_dir = os.path.join(os.path.dirname(__file__), 'fineweb10B')
     os.makedirs(local_dir, exist_ok=True)
 
     # Download validation file
-    val_file = "fineweb_val_000000.bin"
-    print(f"Downloading validation file: {val_file}")
-    download_cached_file(val_file, local_dir)
+    val_file_name = "fineweb_val_000000.bin"
+    print(f"Downloading validation file: {val_file_name}")
+    download_cached_file(val_file_name, local_dir)
 
     # Allow specifying number of chunks via command line argument
     num_chunks = 18  # default: full fineweb10B dataset chunks
-    if len(sys.argv) >= 2:
+    if len(sys.argv) > 1:
         num_chunks = int(sys.argv[1])
         print(f"Will download {num_chunks} chunks instead of full dataset")
 
     # Download training files
+    train_files_names = [f"fineweb_train_{i:06d}.bin" for i in range(1, num_chunks + 1)]
     print(f"Downloading {num_chunks} training chunks...")
-    for i in tqdm(range(1, num_chunks + 1), desc="Downloading training chunks"):
-        train_file = f"fineweb_train_{i:06d}.bin"
-        download_cached_file(train_file, local_dir)
+    for fname in tqdm(train_files_names, desc="Downloading training chunks"):
+        download_cached_file(fname, local_dir)
 
-    # Process and combine training chunks into a single binary file
-    print("Combining training chunks into single binary file...")
-    train_tokens = []
-    for i in tqdm(range(1, num_chunks + 1), desc="Processing training chunks"):
-        train_file = os.path.join(local_dir, f"fineweb_train_{i:06d}.bin")
-        train_tokens.extend(process_binary_file(train_file))
+    # Process and combine data files into single binary files
+    data_splits = {
+        'train': train_files_names,
+        'val': [val_file_name]
+    }
 
-    # Process validation file
-    val_tokens = process_binary_file(os.path.join(local_dir, val_file))
+    for split, fnames in data_splits.items():
+        filename = os.path.join(os.path.dirname(__file__), f'{split}.bin')
+        
+        # Calculate total size of the data
+        total_tokens = 0
+        for fname in fnames:
+            file_path = os.path.join(local_dir, fname)
+            total_tokens += os.path.getsize(file_path) // 2 # 2 bytes per token (uint16)
 
-    # Save combined training data
-    train_file = os.path.join(os.path.dirname(__file__), 'train.bin')
-    val_file_out = os.path.join(os.path.dirname(__file__), 'val.bin')
+        # Create memory-mapped file
+        dtype = np.uint16
+        arr = np.memmap(filename, dtype=dtype, mode='w+', shape=(total_tokens,))
 
-    print("Writing combined training data...")
-    train_array = np.array(train_tokens, dtype=np.uint16)
-    train_memmap = np.memmap(train_file, dtype=np.uint16, mode='w+', shape=train_array.shape)
-    train_memmap[:] = train_array[:]
-    train_memmap.flush()
-
-    print("Writing validation data...")
-    val_array = np.array(val_tokens, dtype=np.uint16)
-    val_memmap = np.memmap(val_file_out, dtype=np.uint16, mode='w+', shape=val_array.shape)
-    val_memmap[:] = val_array[:]
-    val_memmap.flush()
+        # Write each chunk to the memmap file
+        print(f"Writing {filename}...")
+        idx = 0
+        for fname in tqdm(fnames, desc=f"Processing {split} chunks"):
+            file_path = os.path.join(local_dir, fname)
+            chunk_tokens = np.fromfile(file_path, dtype=dtype)
+            arr[idx : idx + len(chunk_tokens)] = chunk_tokens
+            idx += len(chunk_tokens)
+        arr.flush()
 
     # Create and save meta.pkl
     print("Creating meta.pkl...")
     meta = {
         'vocab_size': enc.n_vocab,
         'itos': {i: enc.decode([i]) for i in range(enc.n_vocab)},
-        'stoi': {enc.decode([i]): i for i in range(enc.n_vocab)}
+        'stoi': {enc.decode([i]): i for i in range(enc.n_vocab)},
+        'encode': enc.encode,
+        'decode': enc.decode
     }
     with open(os.path.join(os.path.dirname(__file__), 'meta.pkl'), 'wb') as f:
         pickle.dump(meta, f)
 
     print("Dataset preparation complete!")
-    print(f"Training data saved to: {train_file}")
+    train_file_out = os.path.join(os.path.dirname(__file__), 'train.bin')
+    val_file_out = os.path.join(os.path.dirname(__file__), 'val.bin')
+    print(f"Training data saved to: {train_file_out}")
     print(f"Validation data saved to: {val_file_out}")
     print(f"Meta data saved to: {os.path.join(os.path.dirname(__file__), 'meta.pkl')}")
