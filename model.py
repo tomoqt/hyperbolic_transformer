@@ -320,7 +320,7 @@ class Block(nn.Module):
         self.is_c_per_head = config.per_head_curvature # General intention, might be overridden by dynamic_curvature logic path
 
         if config.curvature_mode == 'fixed':
-            self.c = config.curvature
+            self.c = torch.tensor(float(config.curvature))  # store as tensor so torch ops work
             # Assuming fixed curvature from config is scalar. If it could be per-head, more logic needed.
             if isinstance(self.c, torch.Tensor) and self.c.numel() > 1:
                 # This implies fixed curvature is per-head, check compatibility
