@@ -195,8 +195,9 @@ compile = True # use PyTorch 2.0 to compile the model to be faster
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
 exec(open('configurator.py').read()) # overrides from command line or config file
 
-# Set output directory based on model type
-out_dir = 'out_baseline' if use_baseline_model else 'out_hyperbolic'
+# Set output directory based on model type only if out_dir was not explicitly overridden
+if out_dir == 'out':  # still at the default value, apply the model-type default
+    out_dir = 'out_baseline' if use_baseline_model else 'out_hyperbolic'
 
 config = {k: globals()[k] for k in config_keys} # will be useful for logging
 # -----------------------------------------------------------------------------
