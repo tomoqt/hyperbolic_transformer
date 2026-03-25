@@ -541,6 +541,7 @@ n_embd = 768
 dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
 use_baseline_model = False # whether to use the baseline model from model_baseline.py
+curvature_mode = 'random' # 'fixed', 'parametric', 'tied', or 'random' initialization
 hyperbolic_debug = False # whether to log lightweight hyperbolic internals during eval
 hyperbolic_residual_mode = 'mobius' # 'mobius' or 'euclidean' for residual ablations
 hyperbolic_transport_mode = 'logexp' # 'logexp' or 'identity' to bypass tangent transport
