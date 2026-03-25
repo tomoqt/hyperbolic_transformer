@@ -2,129 +2,167 @@
 
 ## Motivation
 
-This project tests whether adding hyperbolic structure inside a small GPT-style transformer changes representation geometry in a useful way and whether that geometric change translates into faster optimization. The motivating idea is that a mixed-curvature parameterization may produce more isotropic hidden representations and, in the right regime, a more favorable optimization landscape than a matched Euclidean baseline.
+This project asks whether introducing hyperbolic structure inside a GPT-style transformer changes representation geometry in a useful way and whether that geometric change can improve optimization. The working hypothesis is that a mixed-curvature residual stream can make hidden states more isotropic than a matched Euclidean baseline and, in the right regime, make training easier rather than harder.
 
-## Questions
+## What Was Actually Validated?
 
-1. Does the mixed-curvature model increase representation isotropy relative to a matched baseline?
-2. Does it accelerate pretraining in this setup, and if so, is that effect broad, schedule-sensitive, or optimizer-dependent?
+The core validated model is **mixed-curvature**, not fully hyperbolic end to end.
 
-## Architecture Clarification
-
-The current experimental model is not fully hyperbolic end to end. It is a mixed-curvature model with the following structure:
-
-- Token and positional embeddings are added in Euclidean space.
-- `use_embedding_curvature` is disabled in the active validation configs.
+- Embeddings are summed in Euclidean space.
+- In the main validation setup, `use_embedding_curvature=False`.
 - Transformer blocks apply hyperbolic residual-style updates internally.
-- The final layer norm and LM head remain Euclidean.
+- Final norm and LM head remain Euclidean.
 
-The active mixed-curvature branch uses dynamic, per-head curvature with random initialization:
+The original March 20 validation used:
 
-- `curvature_mode = random`
-- `dynamic_curvature = True`
-- `per_head_curvature = True`
-- `use_embedding_curvature = False`
+- `curvature_mode=random`
+- `dynamic_curvature=True`
+- `per_head_curvature=True`
+- `use_embedding_curvature=False`
 
-So the accurate description of the current experimental model is mixed-curvature rather than fully hyperbolic.
+Later ablations found that this was not the best quality/simplicity tradeoff.
 
-## Training Budget and Measured Overhead
+## Validation Results
 
-All validation sweeps and isotropy runs use `1500` optimizer steps per run.
+All main validation runs used `1500` optimizer steps per run.
 
-- Shakespeare tokens per step: `3072`
-- Shakespeare tokens per run: `4,608,000`
-- Fineweb tokens per step: `4096`
-- Fineweb tokens per run: `6,144,000`
-
-Measured end-to-end overhead on the matched Fineweb `5e-4` rerun, using the same host:
-
-- Baseline mean logged step time: `461.88 ms`
-- Mixed-curvature mean logged step time: `1466.89 ms`
-- End-to-end slowdown: about `3.18x`
-- Baseline non-eval mean step time: `121.78 ms`
-- Mixed-curvature non-eval mean step time: `713.21 ms`
-- Train-step-only slowdown: about `5.86x`
-
-## Main Findings
+- Shakespeare: `3072` tokens/step, `4.608M` tokens/run
+- FineWeb: `4096` tokens/step, `6.144M` tokens/run
 
 ### 1. Representation isotropy is a real effect
 
-Under the original AdamW-style optimizer setup:
+Under the original AdamW-style setup:
 
 - Shakespeare isotropy improved mainly in deeper layers.
-- Fineweb isotropy improved across all six probed layers.
+- FineWeb isotropy improved across all six probed layers.
 
-So the isotropy hypothesis is supported in the original setup, with the effect becoming cleaner on the larger-data Fineweb regime.
+So the isotropy hypothesis is supported in the original setup, and it becomes cleaner in the larger-data FineWeb regime.
 
 ### 2. Pretraining speed improved in the original setup, but only in a specific regime
 
 Under the original optimizer:
 
-- Shakespeare coarse LR sweep: mixed-curvature beat baseline across the full swept range.
-- Fineweb coarse LR sweep: baseline won at `1e-4` and `2e-4`, while mixed-curvature won at `5e-4` and `1e-3`.
+- Shakespeare coarse LR sweep: mixed-curvature beat baseline across the full sweep.
+- FineWeb coarse LR sweep: mixed-curvature won at `5e-4` and `1e-3`, while baseline won at `1e-4` and `2e-4`.
 
-Interpretation: the optimization-speed signal is real in this setup, but it is schedule-sensitive rather than universal. The advantage appears concentrated in a higher-learning-rate band on Fineweb.
+Interpretation: the optimization-speed signal is real, but it is concentrated in a higher-learning-rate band on FineWeb rather than being universal.
 
 ## Muon Extension
 
-The Muon extension was added to answer a narrower question: does the mixed-curvature effect survive a different optimizer, or was the earlier result tightly coupled to the original optimization setup?
+The Muon branch asked whether the earlier signal survives a substantially different optimizer.
 
 ### Muon isotropy
 
-The isotropy signal survives Muon, but with a different layer profile.
+The isotropy effect survives Muon, but with a less uniform layer profile.
 
-Shakespeare Muon isotropy:
+- Shakespeare Muon isotropy: deeper layers improve most strongly.
+- FineWeb Muon isotropy: layers `0-1` regress, while layers `2-5` improve progressively.
 
-- Stable setting: `learning_rate=2e-4`, `muon_lr_ratio=1`
-- Early layers were worse or near-neutral.
-- Deeper layers improved, strongest at layer `5` with `normalized_spectral_entropy_delta=+0.1674` and `effective_rank_delta=+33.50`.
-
-Fineweb Muon isotropy:
-
-- Stable setting: `learning_rate=2e-4`, `muon_lr=2e-4`, `muon_lr_ratio=1`
-- Layers `0` and `1` regressed.
-- Layers `2` through `5` improved progressively.
-- Strongest result was layer `5`: `normalized_spectral_entropy_delta=+0.1787`, `effective_rank_delta=+53.34`, `participation_ratio_delta=+5.26`, `top1_share_delta=-0.0155`.
-
-Interpretation: Muon does not erase the geometry effect. The mixed-curvature model still becomes more isotropic in deeper layers, but the Muon version is less uniformly positive than the original Fineweb result.
+Interpretation: Muon does not erase the geometry effect, but it shifts where that gain appears.
 
 ### Muon speed
 
-The Muon speed branch did not reproduce the original acceleration story.
+The Muon speed branch did **not** reproduce the original acceleration result.
 
-Shakespeare Muon coarse LR sweep:
+- Shakespeare Muon coarse LR sweep: baseline remained stable across the sweep.
+- Mixed-curvature diverged to `NaN` at every swept learning rate under the original Muon regime (`muon_lr_ratio=3`).
+- Because the Shakespeare gate already falsified that regime, the downstream FineWeb Muon speed subtree was intentionally canceled.
 
-- Baseline remained stable at every swept learning rate.
-- Mixed-curvature diverged to `NaN` at every swept learning rate under the original Muon sweep setting `muon_lr_ratio=3`.
+Interpretation: the speed gain is not yet optimizer-robust.
 
-That result closes the Muon speed branch as a stability failure rather than an acceleration win. Because the small-scale Shakespeare gate already falsified that regime, the downstream Fineweb Muon speed subtree was intentionally skipped instead of spending compute on a larger version of a failed setting.
+## Ablation Suite (A0-A7)
 
-Interpretation: the mixed-curvature speed effect is not yet optimizer-robust. Under Muon, a stability-recovery branch would be the right next step, not a blind Fineweb sweep at the same failing settings.
+The ablation suite isolated which mixed-curvature ingredients actually matter.
 
-## Current Conclusion
+Main outcome:
 
-The graph now supports three high-level conclusions:
+- the best overall quality came from **fixed curvature `c=0.1`**
+- dynamic curvature was neutral in this setup
+- per-head curvature gave only a tiny gain
+- embedding curvature hurt slightly
+- Muon remained unstable in the tested ablation regime
 
-1. The mixed-curvature architecture does improve representation isotropy, and that conclusion survives both datasets and both optimizer families, although the exact layer profile changes.
-2. The original pretraining-speed gain is real but regime-dependent: it is broad on Shakespeare and concentrated in a higher-LR band on Fineweb.
-3. That speed gain is not currently robust to Muon. Under the original Muon sweep settings, the mixed-curvature model becomes unstable before a larger-data Muon speed comparison is justified.
+Best-quality config from the graph:
 
-## Plot and Artifact Coverage
+```python
+curvature_mode = "fixed"
+curvature = 0.1
+dynamic_curvature = False
+per_head_curvature = False
+use_embedding_curvature = False
+optimizer = "AdamW"
+learning_rate = 5e-4
+```
 
-Plots are attached both at the experiment-node level and at the root:
+Result:
 
-- coarse LR sweep `best_val_vs_lr` plots,
-- layer-wise isotropy metric panels,
-- layer-wise isotropy delta panels,
-- and non-checkpoint bundles containing logs, manifests, histories, and analysis reports for the newer Muon nodes.
+- FineWeb `val_loss = 5.5822`
+- Euclidean baseline `val_loss = 6.022`
+- improvement: about `-0.44` nats
 
-One limitation remains for some of the earliest coarse sweeps: not every legacy run preserved full per-step histories, so some older nodes support aggregate and best-vs-LR plots but not reconstructed full loss curves. The later follow-up and Muon nodes do retain those richer artifacts where noted.
+This matters because the simpler static configuration outperformed the earlier dynamic/per-head validation setup.
 
-## Graph State
+## Speed Optimization Branch
 
-The Muon comparison extension is now logically closed:
+The matched FineWeb `5e-4` rerun established a large baseline overhead:
 
-- Muon isotropy branch: completed on Shakespeare and Fineweb.
-- Muon speed branch: completed at the Shakespeare gate, with the Fineweb descendants committed as intentionally skipped because the upstream regime was already falsified.
+- baseline mean logged step time: `461.88 ms`
+- mixed-curvature mean logged step time: `1466.89 ms`
+- end-to-end slowdown: about `3.18x`
+- train-step-only slowdown: about `5.86x`
 
-The root node should now be read as an abstract of completed results rather than a live run-status dashboard.
+The March 25 speed branch then attacked that overhead directly.
+
+### Implemented optimization steps
+
+- `model_fused.py`: TorchScript-fused hyperbolic ops
+- `model_compiled.py`: `torch.compile(mode="default", fullgraph=False)` helpers
+- `model_precompute.py`: cached static-curvature transforms
+- `model_triton.py`: custom Triton kernels for `mobius_addition`, `expmap`, and `logmap`
+- `bench_s4.py`, `bench_s5.py`: benchmark harnesses committed in the repo
+
+### Benchmark-backed findings
+
+- TorchScript fusion reduced kernel launches by about `71%` in the profiling branch.
+- `torch.compile(..., mode="default")` produced the largest model-level speedup in the benchmark harness.
+- Triton kernels improved core primitive throughput:
+  - `mobius_addition`: `1.70x`
+  - `expmap`: `2.14x`
+  - `logmap`: `3.42x`
+
+The graph-level recommendation is to treat that stack as the correct implementation path for closing the mixed-curvature overhead gap.
+
+## Current Recommendations
+
+### Best quality config
+
+Use the ablation winner:
+
+```python
+curvature_mode = "fixed"
+curvature = 0.1
+dynamic_curvature = False
+per_head_curvature = False
+use_embedding_curvature = False
+optimizer = "AdamW"
+learning_rate = 5e-4
+```
+
+### Balanced quality/speed direction
+
+Use the simpler mixed-curvature configuration plus the speed stack:
+
+1. fused hyperbolic ops
+2. `torch.compile(mode="default", fullgraph=False)`
+3. Triton kernels for the core hyperbolic primitives
+
+## Final Conclusion
+
+The graph now supports four top-level conclusions:
+
+1. Mixed-curvature does improve representation isotropy relative to a matched Euclidean baseline.
+2. The original pretraining-speed gain is real, but regime-sensitive rather than universal.
+3. That speed gain is not currently robust to Muon in the originally tested regime.
+4. A simpler static-curvature configuration outperforms the earlier dynamic/per-head setup, and the path to reducing overhead is now explicit in the repo through the fused, compiled, cached, and Triton-based implementations.
+
+The root should now be read as a completed abstract of the validation graph, including the later ablation and speed-optimization branches, not just the original March 20 validation pass.

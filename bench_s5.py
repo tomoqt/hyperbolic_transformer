@@ -5,11 +5,8 @@ Run:
     python bench_s5.py 2>&1 | tee /tmp/s5_bench.log
 """
 
-import sys
 import time
 import torch
-
-sys.path.insert(0, '/root/hyperbolic_transformer')
 
 device = 'cuda'
 B, T, C = 4, 128, 768

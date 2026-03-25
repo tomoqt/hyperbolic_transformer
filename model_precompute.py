@@ -137,7 +137,10 @@ class Block(CurvatureCacheMixin, nn.Module):
         self.is_c_per_head = config.per_head_curvature
 
         if config.curvature_mode == 'fixed':
-            self.c = torch.tensor(float(config.curvature))
+            fixed_c = torch.as_tensor(config.curvature, dtype=torch.float32)
+            if fixed_c.ndim == 0:
+                fixed_c = fixed_c.view(1)
+            self.register_buffer('c', fixed_c.clone())
             if isinstance(self.c, torch.Tensor) and self.c.numel() > 1:
                 if self.c.shape[0] == config.n_head and self.is_c_per_head:
                     pass

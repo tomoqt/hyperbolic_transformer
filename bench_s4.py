@@ -6,12 +6,9 @@ parameters -- representative of typical training scenario).
 Usage:
     python bench_s4.py 2>&1 | tee /tmp/s4_bench.log
 """
-import sys
 import time
 
 import torch
-
-sys.path.insert(0, '/root/hyperbolic_transformer')
 
 device = 'cuda'
 
