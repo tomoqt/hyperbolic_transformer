@@ -15,8 +15,11 @@ STEP_PATTERN = re.compile(r"step (\d+): train loss ([0-9.]+), val loss ([0-9.]+)
 def read_json(path: Path) -> dict:
     if not path.exists():
         return {}
-    with open(path) as handle:
-        return json.load(handle)
+    try:
+        with open(path) as handle:
+            return json.load(handle)
+    except json.JSONDecodeError:
+        return {}
 
 
 def json_safe(value: Any):
