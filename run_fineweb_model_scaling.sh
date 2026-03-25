@@ -90,7 +90,6 @@ metadata = {
     "use_baseline_model": use_baseline.lower() == "true",
     "learning_rate": float(learning_rate),
     "curvature": float(curvature),
-    "curvature_mode": "fixed",
     "dynamic_curvature": False,
     "per_head_curvature": False,
     "use_embedding_curvature": False,
