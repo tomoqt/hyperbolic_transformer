@@ -1,0 +1,153 @@
+{
+  "run": {
+    "out_dir": "runs/shakespeare_isotropy_muon_modal_20260320/baseline",
+    "dataset": "shakespeare_char",
+    "init_from": "scratch",
+    "device": "cuda",
+    "device_type": "cuda",
+    "dtype": "float16",
+    "compile": false,
+    "ddp": false,
+    "ddp_world_size": 1,
+    "gradient_accumulation_steps": 1,
+    "batch_size": 12,
+    "block_size": 256,
+    "tokens_per_iter": 3072,
+    "max_iters": 1500,
+    "total_token_budget": 4608000,
+    "eval_interval": 100,
+    "eval_iters": 20,
+    "log_interval": 50,
+    "always_save_checkpoint": true,
+    "seed_base": 1337,
+    "seed_offset": 0
+  },
+  "optimizer": {
+    "name": "adamw_plus_muon",
+    "use_muon": true,
+    "learning_rate": 0.0002,
+    "min_lr": 1e-05,
+    "weight_decay": 0.1,
+    "betas": [
+      0.9,
+      0.99
+    ],
+    "muon_lr": 0.0002,
+    "muon_lr_ratio": 1.0,
+    "muon_momentum": 0.95,
+    "muon_nesterov": true,
+    "muon_ns_steps": 5,
+    "parameter_split": {
+      "adamw_tensors": 15,
+      "adamw_parameters": 128256,
+      "muon_tensors": 24,
+      "muon_parameters": 10616832,
+      "total_trainable_tensors": 39,
+      "total_trainable_parameters": 10745088
+    }
+  },
+  "model": {
+    "geometry_regime": "euclidean_baseline",
+    "model_variant": "baseline",
+    "forward_geometry": {
+      "embedding_sum_space": "euclidean",
+      "embedding_expmap_enabled": false,
+      "transformer_blocks": "euclidean",
+      "final_norm_and_lm_head": "euclidean"
+    },
+    "config": {
+      "block_size": 256,
+      "vocab_size": 65,
+      "n_layer": 6,
+      "n_head": 6,
+      "n_embd": 384,
+      "dropout": 0.0,
+      "bias": false
+    },
+    "parameter_count_total": 10745088,
+    "parameter_count_trainable": 10745088,
+    "parameter_count_non_embedding": 10646784,
+    "has_embedding_curvature_parameter": false,
+    "embedding_curvature_shape": null,
+    "shared_curvature_shape": null,
+    "block_summaries": [
+      {
+        "block_index": 0,
+        "has_curvature_parameter": false,
+        "has_dynamic_predictor": false
+      },
+      {
+        "block_index": 1,
+        "has_curvature_parameter": false,
+        "has_dynamic_predictor": false
+      },
+      {
+        "block_index": 2,
+        "has_curvature_parameter": false,
+        "has_dynamic_predictor": false
+      },
+      {
+        "block_index": 3,
+        "has_curvature_parameter": false,
+        "has_dynamic_predictor": false
+      },
+      {
+        "block_index": 4,
+        "has_curvature_parameter": false,
+        "has_dynamic_predictor": false
+      },
+      {
+        "block_index": 5,
+        "has_curvature_parameter": false,
+        "has_dynamic_predictor": false
+      }
+    ]
+  },
+  "config": {
+    "out_dir": "runs/shakespeare_isotropy_muon_modal_20260320/baseline",
+    "eval_interval": 100,
+    "log_interval": 50,
+    "eval_iters": 20,
+    "eval_only": false,
+    "always_save_checkpoint": true,
+    "init_from": "scratch",
+    "wandb_log": false,
+    "wandb_project": "hyperbolic-shakespeare-char",
+    "wandb_run_name": "mini-gpt",
+    "dataset": "shakespeare_char",
+    "gradient_accumulation_steps": 1,
+    "batch_size": 12,
+    "block_size": 256,
+    "n_layer": 6,
+    "n_head": 6,
+    "n_embd": 384,
+    "dropout": 0.0,
+    "bias": false,
+    "use_baseline_model": true,
+    "learning_rate": 0.0002,
+    "max_iters": 1500,
+    "weight_decay": 0.1,
+    "beta1": 0.9,
+    "beta2": 0.99,
+    "grad_clip": 1.0,
+    "use_muon": true,
+    "muon_lr": 0.0002,
+    "muon_momentum": 0.95,
+    "muon_nesterov": true,
+    "muon_ns_steps": 5,
+    "decay_lr": true,
+    "warmup_iters": 100,
+    "lr_decay_iters": 1500,
+    "min_lr": 1e-05,
+    "backend": "nccl",
+    "device": "cuda",
+    "dtype": "float16",
+    "compile": false
+  },
+  "artifacts": {
+    "checkpoint_path": "runs/shakespeare_isotropy_muon_modal_20260320/baseline/ckpt.pt",
+    "metrics_jsonl_path": "runs/shakespeare_isotropy_muon_modal_20260320/baseline/metrics.jsonl",
+    "eval_history_path": "runs/shakespeare_isotropy_muon_modal_20260320/baseline/eval_history.json",
+    "run_manifest_path": "runs/shakespeare_isotropy_muon_modal_20260320/baseline/run_manifest.json"
+  }
+}

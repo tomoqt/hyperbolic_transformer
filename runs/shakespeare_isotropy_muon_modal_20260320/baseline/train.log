@@ -1,0 +1,132 @@
+Overriding config with config/train_shakespeare_char.py:
+# train a miniature character-level shakespeare model
+# good for debugging and playing on macbooks and such
+
+out_dir = 'Hyperbolic-out-shakespeare-char'
+eval_interval = 10 # keep frequent because we'll overfit
+eval_iters = 20
+log_interval = 1 # don't print too too often
+
+# we expect to overfit on this small dataset, so only save when val improves
+always_save_checkpoint = False
+
+wandb_log = True # override via command line if you like
+wandb_project = 'hyperbolic-shakespeare-char'
+wandb_run_name = 'mini-gpt'
+
+dataset = 'shakespeare_char'
+gradient_accumulation_steps = 1
+batch_size = 12
+block_size = 256 # context of up to 256 previous characters
+curvature = 1.0
+# baby GPT model :)
+n_layer = 6
+n_head = 6
+n_embd = 384
+dropout = 0.0
+use_muon = False
+muon_lr = 1e-2
+muon_momentum = 0.95
+muon_nesterov = True
+muon_ns_steps = 5
+learning_rate = 1e-3 # with baby networks can afford to go a bit higher
+max_iters = 5000
+lr_decay_iters = 5000 # make equal to max_iters usually
+min_lr = 1e-5 # learning_rate / 10 usually
+beta2 = 0.99 # make a bit bigger because number of tokens per iter is small
+
+warmup_iters = 100 # not super necessary potentially
+map_back_after_attention = False
+use_embedding_curvature = False
+# on macbook also add
+# device = 'cpu'  # run on cpu only
+# compile = False # do not torch compile the model
+
+Overriding: use_baseline_model = True
+Overriding: use_muon = True
+Overriding: device = cuda
+Overriding: compile = False
+Overriding: wandb_log = False
+Overriding: max_iters = 1500
+Overriding: lr_decay_iters = 1500
+Overriding: eval_interval = 100
+Overriding: log_interval = 50
+Overriding: always_save_checkpoint = True
+Overriding: out_dir = runs/shakespeare_isotropy_muon_modal_20260320/baseline
+Overriding: muon_momentum = 0.95
+Overriding: muon_nesterov = True
+Overriding: muon_ns_steps = 5
+Overriding: learning_rate = 0.0002
+Overriding: muon_lr = 0.0002
+Using baseline model from model_baseline.py
+tokens per iteration will be: 3,072
+Checkpoint directory: runs/shakespeare_isotropy_muon_modal_20260320/baseline
+found vocab_size = 65 (inside data/shakespeare_char/meta.pkl)
+Initializing a new model from scratch
+Using vocab_size = 65 for new model initialization.
+number of parameters: 10.65M
+num parameters for AdamW: 15, with 128,256 parameters
+num parameters for Muon: 24, with 10,616,832 parameters
+using fused AdamW: True
+step 0: train loss 4.2838, val loss 4.2822
+iter 0: loss 4.2779, time 960.82ms, mfu -100.00%
+iter 50: loss 3.6879, time 24.42ms, mfu 2.86%
+step 100: train loss 2.9237, val loss 2.9710
+saving baseline model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/baseline
+iter 100: loss 2.9092, time 348.35ms, mfu 2.60%
+iter 150: loss 2.6130, time 24.15ms, mfu 2.62%
+step 200: train loss 2.5085, val loss 2.5272
+saving baseline model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/baseline
+iter 200: loss 2.4914, time 363.37ms, mfu 2.38%
+iter 250: loss 2.4992, time 26.01ms, mfu 2.41%
+step 300: train loss 2.4671, val loss 2.4974
+saving baseline model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/baseline
+iter 300: loss 2.4962, time 352.33ms, mfu 2.19%
+iter 350: loss 2.4368, time 29.82ms, mfu 2.21%
+step 400: train loss 2.4462, val loss 2.4703
+saving baseline model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/baseline
+iter 400: loss 2.4214, time 367.87ms, mfu 2.00%
+iter 450: loss 2.4319, time 21.39ms, mfu 2.13%
+step 500: train loss 2.4223, val loss 2.4448
+saving baseline model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/baseline
+iter 500: loss 2.4297, time 342.16ms, mfu 1.94%
+iter 550: loss 2.4178, time 21.63ms, mfu 2.07%
+step 600: train loss 2.3925, val loss 2.4266
+saving baseline model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/baseline
+iter 600: loss 2.4515, time 340.06ms, mfu 1.88%
+iter 650: loss 2.3665, time 21.33ms, mfu 2.02%
+step 700: train loss 2.3768, val loss 2.4253
+saving baseline model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/baseline
+iter 700: loss 2.3521, time 321.68ms, mfu 1.84%
+iter 750: loss 2.4015, time 23.48ms, mfu 1.95%
+step 800: train loss 2.3533, val loss 2.3944
+saving baseline model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/baseline
+iter 800: loss 2.3425, time 328.22ms, mfu 1.78%
+iter 850: loss 2.3451, time 21.28ms, mfu 1.93%
+step 900: train loss 2.3418, val loss 2.3796
+saving baseline model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/baseline
+iter 900: loss 2.3110, time 309.52ms, mfu 1.76%
+iter 950: loss 2.3263, time 22.47ms, mfu 1.89%
+step 1000: train loss 2.3358, val loss 2.3807
+saving baseline model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/baseline
+iter 1000: loss 2.3633, time 301.22ms, mfu 1.73%
+iter 1050: loss 2.3394, time 26.71ms, mfu 1.82%
+step 1100: train loss 2.3131, val loss 2.3490
+saving baseline model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/baseline
+iter 1100: loss 2.2962, time 329.43ms, mfu 1.66%
+iter 1150: loss 2.3328, time 23.16ms, mfu 1.79%
+step 1200: train loss 2.2976, val loss 2.3374
+saving baseline model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/baseline
+iter 1200: loss 2.3191, time 308.43ms, mfu 1.64%
+iter 1250: loss 2.3330, time 25.62ms, mfu 1.75%
+step 1300: train loss 2.3132, val loss 2.3395
+saving baseline model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/baseline
+iter 1300: loss 2.3121, time 345.59ms, mfu 1.59%
+iter 1350: loss 2.2944, time 22.25ms, mfu 1.75%
+step 1400: train loss 2.2943, val loss 2.3311
+saving baseline model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/baseline
+iter 1400: loss 2.2950, time 300.87ms, mfu 1.59%
+iter 1450: loss 2.2993, time 31.51ms, mfu 1.66%
+step 1500: train loss 2.2944, val loss 2.3244
+saving baseline model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/baseline
+iter 1500: loss 2.2407, time 304.85ms, mfu 1.51%

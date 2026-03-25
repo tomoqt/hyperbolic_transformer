@@ -16,11 +16,13 @@ $ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=1 --master_addr=123.456.123
 (If your cluster does not have Infiniband interconnect prepend NCCL_IB_DISABLE=1)
 """
 
+import json
 import os
 import time
 import math
 import pickle
 import inspect
+from dataclasses import MISSING, fields
 from contextlib import nullcontext
 import argparse
 
@@ -100,6 +102,48 @@ class Muon(torch.optim.Optimizer):
 
     @torch.no_grad()
     def step(self):
+        # Single-process fallback: the distributed implementation relies on an initialized
+        # default process group for all_gather. For the common 1-GPU/1-process case we
+        # run a local Muon update without any distributed collectives.
+        if self.world_size == 1 or not dist.is_available() or not dist.is_initialized():
+            for group in self.param_groups:
+                lr = group["lr"]
+                wd = group["weight_decay"]
+                momentum = group["momentum"]
+                nesterov = group["nesterov"]
+                ns_steps = group["ns_steps"]
+
+                for p in group["params"]:
+                    g = p.grad
+                    if g is None:
+                        continue
+
+                    state = self.state[p]
+                    if "momentum_buffer" not in state:
+                        state["momentum_buffer"] = torch.zeros_like(g)
+                    buf = state["momentum_buffer"]
+                    buf.mul_(momentum).add_(g)
+
+                    if nesterov:
+                        g_update = g.add(buf, alpha=momentum)
+                    else:
+                        g_update = buf
+
+                    g_mat = g_update
+                    unflatten_shape = None
+                    if g_mat.ndim > 2:
+                        unflatten_shape = g_mat.shape
+                        g_mat = g_mat.flatten(1)
+
+                    g_ortho = zeropower_via_newtonschulz5(g_mat, steps=ns_steps)
+                    if unflatten_shape is not None:
+                        g_ortho = g_ortho.view(unflatten_shape)
+
+                    p.mul_(1 - lr * wd)
+                    scale = max(1.0, p.size(-2) / p.size(-1)) ** 0.5 if p.ndim >= 2 else 1.0
+                    p.add_(g_ortho, alpha=-lr * scale)
+            return
+
         for group in self.param_groups:
             update_buffer = group["update_buffer"]
             update_buffer_views = group["update_buffer_views"]
@@ -136,6 +180,342 @@ class Muon(torch.optim.Optimizer):
             update_prev()
 
 # -----------------------------------------------------------------------------
+def to_jsonable(value):
+    if value is None:
+        return None
+    if isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, (list, tuple)):
+        return [to_jsonable(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): to_jsonable(item) for key, item in value.items()}
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except Exception:
+            pass
+    if isinstance(value, torch.Size):
+        return list(value)
+    return str(value)
+
+
+def write_json(path, payload):
+    with open(path, 'w') as handle:
+        json.dump(payload, handle, indent=2)
+
+
+def append_jsonl(path, payload):
+    with open(path, 'a') as handle:
+        handle.write(json.dumps(payload) + '\n')
+
+
+def config_to_dict(config_obj):
+    if hasattr(config_obj, '__dataclass_fields__'):
+        return {
+            field_name: to_jsonable(getattr(config_obj, field_name))
+            for field_name in config_obj.__dataclass_fields__
+        }
+    return {
+        key: to_jsonable(value)
+        for key, value in vars(config_obj).items()
+        if not key.startswith('_')
+    }
+
+
+def collect_model_internal_snapshot(model_obj, use_baseline_model):
+    config_snapshot = config_to_dict(model_obj.config)
+    block_summaries = []
+    for idx, block in enumerate(getattr(model_obj.transformer, 'h', [])):
+        block_summary = {
+            'block_index': idx,
+            'has_curvature_parameter': hasattr(block, 'c'),
+            'has_dynamic_predictor': hasattr(block, 'curvature_predictor'),
+        }
+        if hasattr(block, 'c') and isinstance(block.c, torch.Tensor):
+            block_summary['curvature_shape'] = list(block.c.shape)
+            block_summary['curvature_numel'] = block.c.numel()
+            block_summary['curvature_mean'] = float(block.c.detach().float().mean().cpu().item())
+        block_summaries.append(block_summary)
+
+    has_embedding_curvature = hasattr(model_obj, 'embedding_curvature') and isinstance(model_obj.embedding_curvature, torch.Tensor)
+    geometry_regime = 'euclidean_baseline' if use_baseline_model else 'mixed_curvature'
+    forward_geometry = {
+        'embedding_sum_space': 'euclidean',
+        'embedding_expmap_enabled': bool(getattr(model_obj.config, 'use_embedding_curvature', False)),
+        'transformer_blocks': 'euclidean' if use_baseline_model else 'hyperbolic_residual_updates',
+        'final_norm_and_lm_head': 'euclidean',
+    }
+
+    snapshot = {
+        'geometry_regime': geometry_regime,
+        'model_variant': 'baseline' if use_baseline_model else 'mixed_curvature_transformer',
+        'forward_geometry': forward_geometry,
+        'config': config_snapshot,
+        'parameter_count_total': sum(p.numel() for p in model_obj.parameters()),
+        'parameter_count_trainable': sum(p.numel() for p in model_obj.parameters() if p.requires_grad),
+        'parameter_count_non_embedding': int(model_obj.get_num_params()) if hasattr(model_obj, 'get_num_params') else None,
+        'has_embedding_curvature_parameter': has_embedding_curvature,
+        'embedding_curvature_shape': list(model_obj.embedding_curvature.shape) if has_embedding_curvature else None,
+        'shared_curvature_shape': list(model_obj.shared_curvature.shape) if hasattr(model_obj, 'shared_curvature') and isinstance(model_obj.shared_curvature, torch.Tensor) else None,
+        'block_summaries': block_summaries,
+    }
+    if has_embedding_curvature:
+        snapshot['embedding_curvature_mean'] = float(model_obj.embedding_curvature.detach().float().mean().cpu().item())
+    return snapshot
+
+
+def collect_curvature_logging(raw_model):
+    flat_log = {}
+    snapshot = {
+        'type': 'none',
+        'dynamic_curvature': bool(getattr(raw_model.config, 'dynamic_curvature', False)),
+        'per_head_curvature': bool(getattr(raw_model.config, 'per_head_curvature', False)),
+        'curvature_mode': getattr(raw_model.config, 'curvature_mode', None),
+    }
+
+    if hasattr(raw_model.config, 'dynamic_curvature') and raw_model.config.dynamic_curvature:
+        all_dynamic_curvature_block_means = []
+        block_summaries = []
+        flat_log['curvature_type'] = 'dynamic'
+        snapshot['type'] = 'dynamic'
+
+        for i, block in enumerate(raw_model.transformer.h):
+            if not hasattr(block, 'last_dynamic_c'):
+                continue
+
+            dynamic_c_tensor = block.last_dynamic_c
+            mean_batch_dynamic_c = dynamic_c_tensor.mean(dim=0).cpu()
+            block_summary = {
+                'block_index': i,
+                'batch_mean_shape': list(mean_batch_dynamic_c.shape),
+            }
+            current_block_means = []
+
+            if mean_batch_dynamic_c.numel() == raw_model.config.n_head and raw_model.config.per_head_curvature:
+                head_means = []
+                for h_idx in range(raw_model.config.n_head):
+                    head_mean_c = float(mean_batch_dynamic_c[h_idx].item())
+                    head_means.append(head_mean_c)
+                    flat_log[f'dynamic_curvature/block_{i}/head_{h_idx}_batch_mean'] = head_mean_c
+                    current_block_means.append(head_mean_c)
+                block_overall_mean = sum(current_block_means) / len(current_block_means) if current_block_means else 0.0
+                flat_log[f'dynamic_curvature/block_{i}_overall_batch_mean'] = block_overall_mean
+                all_dynamic_curvature_block_means.append(block_overall_mean)
+                block_summary['head_means'] = head_means
+                block_summary['overall_batch_mean'] = block_overall_mean
+            elif mean_batch_dynamic_c.numel() == 1:
+                scalar_mean_c = float(mean_batch_dynamic_c.item())
+                flat_log[f'dynamic_curvature/block_{i}_batch_mean'] = scalar_mean_c
+                all_dynamic_curvature_block_means.append(scalar_mean_c)
+                block_summary['scalar_batch_mean'] = scalar_mean_c
+            else:
+                block_summary['warning'] = f'unexpected_shape:{list(mean_batch_dynamic_c.shape)}'
+
+            block_summaries.append(block_summary)
+
+        snapshot['blocks'] = block_summaries
+        if all_dynamic_curvature_block_means:
+            snapshot['global_avg_block_means'] = sum(all_dynamic_curvature_block_means) / len(all_dynamic_curvature_block_means)
+            snapshot['global_min_block_means'] = min(all_dynamic_curvature_block_means)
+            snapshot['global_max_block_means'] = max(all_dynamic_curvature_block_means)
+            flat_log['dynamic_curvature/global_avg_block_means'] = snapshot['global_avg_block_means']
+            flat_log['dynamic_curvature/global_min_block_means'] = snapshot['global_min_block_means']
+            flat_log['dynamic_curvature/global_max_block_means'] = snapshot['global_max_block_means']
+        return flat_log, snapshot
+
+    if hasattr(raw_model.config, 'curvature_mode') and raw_model.config.curvature_mode in ['parametric', 'random', 'tied']:
+        flat_log['curvature_type'] = 'static'
+        snapshot['type'] = 'static'
+        all_static_curvature_values = []
+        block_summaries = []
+
+        for i, block in enumerate(raw_model.transformer.h):
+            if not (hasattr(block, 'c') and isinstance(block.c, nn.Parameter)):
+                continue
+            block_summary = {'block_index': i}
+
+            if block.c.dim() > 0 and block.c.numel() > 1:
+                if block.c.numel() == raw_model.config.n_head:
+                    head_values = [float(c_val.item()) for c_val in block.c.detach().cpu()]
+                else:
+                    head_size = raw_model.config.n_embd // raw_model.config.n_head
+                    head_values = [float(block.c.detach().cpu()[h * head_size].item()) for h in range(raw_model.config.n_head)]
+                for h, head_val in enumerate(head_values):
+                    flat_log[f'curvature/block_{i}/head_{h}'] = head_val
+                block_avg = float(block.c.detach().mean().cpu().item())
+                flat_log[f'curvature/block_{i}'] = block_avg
+                all_static_curvature_values.extend(head_values)
+                block_summary['head_values'] = head_values
+                block_summary['block_average'] = block_avg
+            else:
+                c_value = float(block.c.detach().cpu().item())
+                flat_log[f'curvature/block_{i}'] = c_value
+                all_static_curvature_values.append(c_value)
+                block_summary['block_value'] = c_value
+
+            block_summaries.append(block_summary)
+
+        snapshot['blocks'] = block_summaries
+        if all_static_curvature_values:
+            snapshot['avg'] = sum(all_static_curvature_values) / len(all_static_curvature_values)
+            snapshot['min'] = min(all_static_curvature_values)
+            snapshot['max'] = max(all_static_curvature_values)
+            snapshot['static_per_head_active'] = bool(getattr(raw_model.config, 'per_head_curvature', False))
+            flat_log['curvature/avg'] = snapshot['avg']
+            flat_log['curvature/min'] = snapshot['min']
+            flat_log['curvature/max'] = snapshot['max']
+            flat_log['curvature/static_per_head_active'] = snapshot['static_per_head_active']
+
+        if hasattr(raw_model, 'embedding_curvature') and isinstance(raw_model.embedding_curvature, nn.Parameter):
+            embedding_curvature = float(raw_model.embedding_curvature.detach().cpu().item())
+            snapshot['embedding'] = embedding_curvature
+            flat_log['curvature/embedding'] = embedding_curvature
+        return flat_log, snapshot
+
+    return flat_log, snapshot
+
+
+def collect_hyperbolic_debug(raw_model):
+    flat_log = {}
+    snapshot = {
+        'enabled': bool(getattr(raw_model.config, 'hyperbolic_debug', False)),
+        'residual_mode': getattr(raw_model.config, 'hyperbolic_residual_mode', None),
+        'transport_mode': getattr(raw_model.config, 'hyperbolic_transport_mode', None),
+        'project_hyperbolic_points': bool(getattr(raw_model.config, 'project_hyperbolic_points', False)),
+    }
+    if not snapshot['enabled']:
+        return flat_log, snapshot
+
+    block_summaries = []
+    global_abs_max = []
+    global_nonfinite = []
+    global_min_denominator = []
+
+    for i, block in enumerate(raw_model.transformer.h):
+        debug_payload = getattr(block, 'last_hyperbolic_debug', None)
+        if not debug_payload:
+            continue
+        block_summary = {'block_index': i}
+        for key, value in sorted(debug_payload.items()):
+            jsonable = to_jsonable(value)
+            block_summary[key] = jsonable
+            flat_log[f'hyperbolic_debug/block_{i}/{key}'] = jsonable
+            if key.endswith('_abs_max') and isinstance(jsonable, (int, float)):
+                global_abs_max.append(float(jsonable))
+            if key.endswith('_nonfinite_count') and isinstance(jsonable, (int, float)):
+                global_nonfinite.append(float(jsonable))
+            if key.endswith('denominator_min_abs') and isinstance(jsonable, (int, float)):
+                global_min_denominator.append(float(jsonable))
+        block_summaries.append(block_summary)
+
+    snapshot['blocks'] = block_summaries
+    if global_abs_max:
+        snapshot['global_max_abs_value'] = max(global_abs_max)
+    if global_nonfinite:
+        snapshot['global_max_nonfinite_count'] = max(global_nonfinite)
+    if global_min_denominator:
+        snapshot['global_min_denominator_abs'] = min(global_min_denominator)
+    return flat_log, snapshot
+
+
+def collect_named_gradient_stats(named_params):
+    total_sq = 0.0
+    grad_tensors = 0
+    nonfinite_grad_count = 0
+    max_abs = 0.0
+    first_nonfinite_param = None
+
+    for name, param in named_params:
+        grad = param.grad
+        if grad is None:
+            continue
+        grad_tensors += 1
+        grad_detached = grad.detach()
+        finite_mask = torch.isfinite(grad_detached)
+        if finite_mask.any():
+            finite_grad = grad_detached[finite_mask].float()
+            total_sq += float(torch.sum(finite_grad * finite_grad).cpu().item())
+            max_abs = max(max_abs, float(finite_grad.abs().max().cpu().item()))
+        if not finite_mask.all():
+            nonfinite_grad_count += int((~finite_mask).sum().cpu().item())
+            if first_nonfinite_param is None:
+                first_nonfinite_param = name
+
+    return {
+        'grad_tensors': grad_tensors,
+        'grad_l2_norm': math.sqrt(total_sq),
+        'grad_abs_max': max_abs,
+        'nonfinite_grad_count': nonfinite_grad_count,
+        'first_nonfinite_grad_param': first_nonfinite_param,
+    }
+
+
+def collect_named_parameter_stats(named_params):
+    nonfinite_param_count = 0
+    max_abs = 0.0
+    first_nonfinite_param = None
+
+    for name, param in named_params:
+        param_detached = param.detach()
+        finite_mask = torch.isfinite(param_detached)
+        if finite_mask.any():
+            max_abs = max(max_abs, float(param_detached[finite_mask].abs().max().cpu().item()))
+        if not finite_mask.all():
+            nonfinite_param_count += int((~finite_mask).sum().cpu().item())
+            if first_nonfinite_param is None:
+                first_nonfinite_param = name
+
+    return {
+        'parameter_abs_max': max_abs,
+        'nonfinite_parameter_count': nonfinite_param_count,
+        'first_nonfinite_parameter': first_nonfinite_param,
+    }
+
+
+def unscale_named_grads(named_params, inv_scale):
+    for _, param in named_params:
+        if param.grad is None:
+            continue
+        param.grad.detach().mul_(inv_scale)
+
+
+def build_run_manifest(raw_model, optimizer_metadata, tokens_per_iter, max_iters, out_dir, device, device_type, dtype, compile_enabled, ddp, ddp_world_size, gradient_accumulation_steps, seed_offset):
+    return {
+        'run': {
+            'out_dir': out_dir,
+            'dataset': dataset,
+            'init_from': init_from,
+            'device': device,
+            'device_type': device_type,
+            'dtype': dtype,
+            'compile': compile_enabled,
+            'ddp': ddp,
+            'ddp_world_size': ddp_world_size,
+            'gradient_accumulation_steps': gradient_accumulation_steps,
+            'batch_size': batch_size,
+            'block_size': block_size,
+            'tokens_per_iter': tokens_per_iter,
+            'max_iters': max_iters,
+            'total_token_budget': tokens_per_iter * max_iters,
+            'eval_interval': eval_interval,
+            'eval_iters': eval_iters,
+            'log_interval': log_interval,
+            'always_save_checkpoint': always_save_checkpoint,
+            'seed_base': 1337,
+            'seed_offset': seed_offset,
+        },
+        'optimizer': optimizer_metadata,
+        'model': collect_model_internal_snapshot(raw_model, use_baseline_model),
+        'config': {key: to_jsonable(value) for key, value in config.items()},
+        'artifacts': {
+            'checkpoint_path': os.path.join(out_dir, 'ckpt.pt'),
+            'metrics_jsonl_path': os.path.join(out_dir, 'metrics.jsonl'),
+            'eval_history_path': os.path.join(out_dir, 'eval_history.json'),
+            'run_manifest_path': os.path.join(out_dir, 'run_manifest.json'),
+        },
+    }
+
+
 # default config values designed to train a gpt2 (124M) on OpenWebText
 # I/O
 out_dir = 'out'
@@ -161,6 +541,11 @@ n_embd = 768
 dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
 use_baseline_model = False # whether to use the baseline model from model_baseline.py
+hyperbolic_debug = False # whether to log lightweight hyperbolic internals during eval
+hyperbolic_residual_mode = 'mobius' # 'mobius' or 'euclidean' for residual ablations
+hyperbolic_transport_mode = 'logexp' # 'logexp' or 'identity' to bypass tangent transport
+project_hyperbolic_points = False # whether to project updates/states back inside the implied ball
+hyperbolic_projection_eps = 1e-3
 # adamw optimizer
 learning_rate = 6e-4 # max learning rate
 max_iters = 600000 # total number of training iterations
@@ -174,6 +559,8 @@ muon_lr = 0.02 # learning rate for Muon
 muon_momentum = 0.95 # momentum for Muon
 muon_nesterov = True # whether to use nesterov momentum in Muon
 muon_ns_steps = 5 # number of Newton-Schulz iteration steps
+muon_unscale_grads = False # whether to manually unscale Muon gradients when training in float16
+optimizer_debug = False # whether to log Muon/AdamW gradient and parameter finite-state summaries
 # learning rate decay settings
 decay_lr = True # whether to decay the learning rate
 warmup_iters = 2000 # how many steps to warm up for
@@ -190,7 +577,9 @@ config_keys = [k for k,v in globals().items() if not k.startswith('_') and isins
 exec(open('configurator.py').read()) # overrides from command line or config file
 
 # Set output directory based on model type
-out_dir = 'out_baseline' if use_baseline_model else 'out_hyperbolic'
+# Respect explicit run directories from configs/CLI; only auto-name when left at the generic default.
+if out_dir == 'out':
+    out_dir = 'out_baseline' if use_baseline_model else 'out_hyperbolic'
 
 config = {k: globals()[k] for k in config_keys} # will be useful for logging
 # -----------------------------------------------------------------------------
@@ -202,6 +591,20 @@ if use_baseline_model:
 else:
     print("Using standard model from model.py")
     from model import GPTConfig, GPT
+
+def build_model_args(config_cls):
+    """Materialize the selected model config so checkpoints faithfully describe the run."""
+    model_args = {}
+    for config_field in fields(config_cls):
+        if config_field.name in globals():
+            model_args[config_field.name] = globals()[config_field.name]
+        elif config_field.default is not MISSING:
+            model_args[config_field.name] = config_field.default
+        elif config_field.default_factory is not MISSING:
+            model_args[config_field.name] = config_field.default_factory()
+    return model_args
+
+gptconfig_field_names = {config_field.name for config_field in fields(GPTConfig)}
 
 # various inits, derived attributes, I/O setup
 ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run?
@@ -229,6 +632,9 @@ print(f"tokens per iteration will be: {tokens_per_iter:,}")
 if master_process:
     os.makedirs(out_dir, exist_ok=True)
     print(f"Checkpoint directory: {out_dir}")
+run_manifest_path = os.path.join(out_dir, 'run_manifest.json')
+metrics_jsonl_path = os.path.join(out_dir, 'metrics.jsonl')
+eval_history_path = os.path.join(out_dir, 'eval_history.json')
 torch.manual_seed(1337 + seed_offset)
 torch.backends.cuda.matmul.allow_tf32 = True # allow tf32 on matmul
 torch.backends.cudnn.allow_tf32 = True # allow tf32 on cudnn
@@ -278,8 +684,7 @@ if os.path.exists(meta_path):
     print(f"found vocab_size = {meta_vocab_size} (inside {meta_path})")
 
 # model init
-model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
-                  bias=bias, vocab_size=None, dropout=dropout) # start with model_args from command line
+model_args = build_model_args(GPTConfig)
 if init_from == 'scratch':
     # init a new model from scratch
     print("Initializing a new model from scratch")
@@ -296,10 +701,10 @@ elif init_from == 'resume':
     ckpt_path = os.path.join(out_dir, 'ckpt.pt')
     checkpoint = torch.load(ckpt_path, map_location=device)
     checkpoint_model_args = checkpoint['model_args']
-    # force these config attributes to be equal otherwise we can't even resume training
-    # the rest of the attributes (e.g. dropout) can stay as desired from command line
-    for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size']:
-        model_args[k] = checkpoint_model_args[k]
+    # Restore the saved model configuration so resumed runs use the original architecture.
+    for k in gptconfig_field_names:
+        if k in checkpoint_model_args:
+            model_args[k] = checkpoint_model_args[k]
     # create the model
     gptconf = GPTConfig(**model_args)
     model = GPT(gptconf)
@@ -319,8 +724,9 @@ elif init_from.startswith('gpt2'):
     override_args = dict(dropout=dropout)
     model = GPT.from_pretrained(init_from, override_args)
     # read off the created config params, so we can store them into checkpoint correctly
-    for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size']:
-        model_args[k] = getattr(model.config, k)
+    for k in gptconfig_field_names:
+        if hasattr(model.config, k):
+            model_args[k] = getattr(model.config, k)
 # crop down the model block size if desired, using model surgery
 if block_size < model.config.block_size:
     model.crop_block_size(block_size)
@@ -331,23 +737,71 @@ model.to(device)
 scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16'))
 
 # optimizer
+optimizer_metadata = {
+    'name': 'adamw',
+    'use_muon': False,
+    'learning_rate': learning_rate,
+    'min_lr': min_lr,
+    'weight_decay': weight_decay,
+    'betas': [beta1, beta2],
+}
+named_trainable_params = []
+named_non_matrix_params = []
+named_matrix_params = []
 if not use_muon:
     # Use standard AdamW for all parameters
+    param_dict = {pn: p for pn, p in model.named_parameters() if p.requires_grad}
+    named_trainable_params = list(param_dict.items())
+    named_non_matrix_params = named_trainable_params
+    decay_params = [p for _, p in param_dict.items() if p.dim() >= 2]
+    nodecay_params = [p for _, p in param_dict.items() if p.dim() < 2]
+    optimizer_metadata['parameter_split'] = {
+        'adamw_decay_tensors': len(decay_params),
+        'adamw_decay_parameters': sum(p.numel() for p in decay_params),
+        'adamw_nodecay_tensors': len(nodecay_params),
+        'adamw_nodecay_parameters': sum(p.numel() for p in nodecay_params),
+        'total_trainable_tensors': len(param_dict),
+        'total_trainable_parameters': sum(p.numel() for p in param_dict.values()),
+    }
     optimizer = model.configure_optimizers(weight_decay, learning_rate, (beta1, beta2), device_type)
 else:
     # Split parameters into those for AdamW and those for Muon
     param_dict = {pn: p for pn, p in model.named_parameters() if p.requires_grad}
-    
+
+    named_trainable_params = list(param_dict.items())
     # Use AdamW for 1D parameters and embeddings
-    non_matrix_params = [p for n, p in param_dict.items() if p.dim() < 2 or 'wte' in n or 'wpe' in n or 'lm_head' in n]
+    named_non_matrix_params = [(n, p) for n, p in param_dict.items() if p.dim() < 2 or 'wte' in n or 'wpe' in n or 'lm_head' in n]
+    non_matrix_params = [p for _, p in named_non_matrix_params]
     # Use Muon for 2D matrices (except embeddings and lm_head)
-    matrix_params = [p for n, p in param_dict.items() if p.dim() >= 2 and 'wte' not in n and 'wpe' not in n and 'lm_head' not in n]
+    named_matrix_params = [(n, p) for n, p in param_dict.items() if p.dim() >= 2 and 'wte' not in n and 'wpe' not in n and 'lm_head' not in n]
+    matrix_params = [p for _, p in named_matrix_params]
     
     # Report parameter split
     num_non_matrix_params = sum(p.numel() for p in non_matrix_params)
     num_matrix_params = sum(p.numel() for p in matrix_params)
     print(f"num parameters for AdamW: {len(non_matrix_params)}, with {num_non_matrix_params:,} parameters")
     print(f"num parameters for Muon: {len(matrix_params)}, with {num_matrix_params:,} parameters")
+    optimizer_metadata = {
+        'name': 'adamw_plus_muon',
+        'use_muon': True,
+        'learning_rate': learning_rate,
+        'min_lr': min_lr,
+        'weight_decay': weight_decay,
+        'betas': [beta1, beta2],
+        'muon_lr': muon_lr,
+        'muon_lr_ratio': (muon_lr / learning_rate) if learning_rate != 0 else None,
+        'muon_momentum': muon_momentum,
+        'muon_nesterov': muon_nesterov,
+        'muon_ns_steps': muon_ns_steps,
+        'parameter_split': {
+            'adamw_tensors': len(non_matrix_params),
+            'adamw_parameters': num_non_matrix_params,
+            'muon_tensors': len(matrix_params),
+            'muon_parameters': num_matrix_params,
+            'total_trainable_tensors': len(param_dict),
+            'total_trainable_parameters': sum(p.numel() for p in param_dict.values()),
+        },
+    }
     
     # Create AdamW optimizer for non-matrix parameters
     # Create optim groups with weight decay for parameters from AdamW
@@ -455,6 +909,26 @@ t0 = time.time()
 local_iter_num = 0 # number of iterations in the lifetime of this process
 raw_model = model.module if ddp else model # unwrap DDP container if needed
 running_mfu = -1.0
+eval_history = []
+if master_process:
+    write_json(
+        run_manifest_path,
+        build_run_manifest(
+            raw_model=raw_model,
+            optimizer_metadata=optimizer_metadata,
+            tokens_per_iter=tokens_per_iter,
+            max_iters=max_iters,
+            out_dir=out_dir,
+            device=device,
+            device_type=device_type,
+            dtype=dtype,
+            compile_enabled=compile,
+            ddp=ddp,
+            ddp_world_size=ddp_world_size,
+            gradient_accumulation_steps=gradient_accumulation_steps,
+            seed_offset=seed_offset,
+        ),
+    )
 while True:
 
     # determine and set the learning rate for this iteration
@@ -476,6 +950,21 @@ while True:
     if iter_num % eval_interval == 0 and master_process:
         losses = estimate_loss()
         print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+        curvature_log_dict, curvature_snapshot = collect_curvature_logging(raw_model)
+        hyperbolic_log_dict, hyperbolic_snapshot = collect_hyperbolic_debug(raw_model)
+        eval_record = {
+            'event': 'eval',
+            'iter': iter_num,
+            'train_loss': float(losses['train']),
+            'val_loss': float(losses['val']),
+            'lr': float(lr),
+            'mfu': None if running_mfu < 0 else float(running_mfu * 100),
+            'curvature': curvature_snapshot,
+            'hyperbolic_debug': hyperbolic_snapshot,
+        }
+        eval_history.append(eval_record)
+        append_jsonl(metrics_jsonl_path, eval_record)
+        write_json(eval_history_path, eval_history)
         if wandb_log:
             log_dict = {
                 "iter": iter_num,
@@ -484,102 +973,8 @@ while True:
                 "lr": lr,
                 "mfu": running_mfu*100, # convert to percentage
             }
-            
-            # Log curvature values to wandb
-            if hasattr(raw_model.config, 'dynamic_curvature') and raw_model.config.dynamic_curvature:
-                all_dynamic_curvature_block_means = []
-                log_dict['curvature_type'] = 'dynamic'
-
-                for i, block in enumerate(raw_model.transformer.h):
-                    if hasattr(block, 'last_dynamic_c'):
-                        # dynamic_c_tensor has shape (B, n_head) or (B, 1)
-                        # B is batch_size used in estimate_loss, which is the main script's batch_size
-                        dynamic_c_tensor = block.last_dynamic_c 
-                        
-                        # Calculate mean over the batch dimension. Result shape: (n_head,) or (1,)
-                        mean_batch_dynamic_c = dynamic_c_tensor.mean(dim=0).cpu()
-                        
-                        current_block_means = []
-                        if mean_batch_dynamic_c.numel() == raw_model.config.n_head and raw_model.config.per_head_curvature:
-                            # Per-head dynamic curvature prediction
-                            for h_idx in range(raw_model.config.n_head):
-                                head_mean_c = mean_batch_dynamic_c[h_idx].item()
-                                log_dict[f'dynamic_curvature/block_{i}/head_{h_idx}_batch_mean'] = head_mean_c
-                                current_block_means.append(head_mean_c)
-                            block_overall_mean = sum(current_block_means) / len(current_block_means) if current_block_means else 0.0
-                            log_dict[f'dynamic_curvature/block_{i}_overall_batch_mean'] = block_overall_mean
-                            all_dynamic_curvature_block_means.append(block_overall_mean)
-                        elif mean_batch_dynamic_c.numel() == 1:
-                            # Scalar dynamic curvature prediction
-                            scalar_mean_c = mean_batch_dynamic_c.item()
-                            log_dict[f'dynamic_curvature/block_{i}_batch_mean'] = scalar_mean_c
-                            all_dynamic_curvature_block_means.append(scalar_mean_c)
-                        else:
-                            print(f"Warning: Unexpected shape for mean_batch_dynamic_c in block {i}: {mean_batch_dynamic_c.shape}")
-                
-                if all_dynamic_curvature_block_means:
-                    log_dict['dynamic_curvature/global_avg_block_means'] = sum(all_dynamic_curvature_block_means) / len(all_dynamic_curvature_block_means)
-                    log_dict['dynamic_curvature/global_min_block_means'] = min(all_dynamic_curvature_block_means)
-                    log_dict['dynamic_curvature/global_max_block_means'] = max(all_dynamic_curvature_block_means)
-                
-                # It's good practice to remove the stored tensors after use if they are not needed elsewhere before the next eval
-                # to ensure fresh values and free memory, though detach() helps with graph issues.
-                # However, estimate_loss runs multiple times, so this must be done carefully or not at all if it interferes.
-                # For now, let's assume they get overwritten or cleared correctly by the model logic.
-
-            # Log static/base curvatures if dynamic curvature is NOT active
-            elif hasattr(raw_model.config, 'curvature_mode') and raw_model.config.curvature_mode in ['parametric', 'random','tied']:
-                log_dict['curvature_type'] = 'static'
-                all_static_curvature_values = []
-                for i, block in enumerate(raw_model.transformer.h):
-                    if hasattr(block, 'c') and isinstance(block.c, nn.Parameter):
-                        # Check if using per-head curvature
-                        if block.c.dim() > 0 and block.c.numel() > 1:
-                            # Log per-head curvature values
-                            if block.c.numel() == raw_model.config.n_head:
-                                # Original per-head version (one value per head)
-                                for h, c_val in enumerate(block.c.detach().cpu()):
-                                    log_dict[f'curvature/block_{i}/head_{h}'] = c_val.item()
-                                    all_static_curvature_values.append(c_val.item())
-                                # Also log block average
-                                block_avg = block.c.detach().mean().cpu().item()
-                                log_dict[f'curvature/block_{i}'] = block_avg
-                            else:
-                                # Expanded version where each head's value is repeated
-                                # Sample just the first value for each head to avoid too many logs
-                                head_size = raw_model.config.n_embd // raw_model.config.n_head
-                                for h in range(raw_model.config.n_head):
-                                    head_val = block.c.detach().cpu()[h * head_size].item()
-                                    log_dict[f'curvature/block_{i}/head_{h}'] = head_val
-                                    all_static_curvature_values.append(head_val)
-                                # Also log block average
-                                block_avg = block.c.detach().mean().cpu().item()
-                                log_dict[f'curvature/block_{i}'] = block_avg
-                        else:
-                            # Original single curvature per block
-                            c_value = block.c.detach().cpu().item()
-                            log_dict[f'curvature/block_{i}'] = c_value
-                            all_static_curvature_values.append(c_value)
-                
-                # Add curvature statistics
-                if all_static_curvature_values:
-                    log_dict['curvature/avg'] = sum(all_static_curvature_values) / len(all_static_curvature_values)
-                    log_dict['curvature/min'] = min(all_static_curvature_values)
-                    log_dict['curvature/max'] = max(all_static_curvature_values)
-                    
-                    # Add a flag to indicate per-head curvature is being used for static
-                    log_dict['curvature/static_per_head_active'] = hasattr(raw_model.config, 'per_head_curvature') and raw_model.config.per_head_curvature
-                
-                # Add embedding curvature if it exists (this is always static if present)
-                if hasattr(raw_model, 'embedding_curvature') and isinstance(raw_model.embedding_curvature, nn.Parameter):
-                    embedding_curvature = raw_model.embedding_curvature.detach().cpu().item()
-                    log_dict['curvature/embedding'] = embedding_curvature
-                    all_static_curvature_values.append(embedding_curvature)
-                    # Update statistics to include embedding curvature
-                    log_dict['curvature/avg'] = sum(all_static_curvature_values) / len(all_static_curvature_values)
-                    log_dict['curvature/min'] = min(all_static_curvature_values)
-                    log_dict['curvature/max'] = max(all_static_curvature_values)
-            
+            log_dict.update(curvature_log_dict)
+            log_dict.update(hyperbolic_log_dict)
             wandb.log(log_dict)
         if losses['val'] < best_val_loss or always_save_checkpoint:
             best_val_loss = losses['val']
@@ -615,14 +1010,37 @@ while True:
         X, Y = get_batch('train')
         # backward pass, with gradient scaling if training in fp16
         scaler.scale(loss).backward()
+    optimizer_step_debug = None
+    if use_muon and isinstance(optimizer, list):
+        need_adamw_unscale = grad_clip != 0.0 or muon_unscale_grads or optimizer_debug
+        if need_adamw_unscale:
+            scaler.unscale_(optimizer[0])
+        if muon_unscale_grads and dtype == 'float16':
+            inv_scale = 1.0 / scaler.get_scale()
+            unscale_named_grads(named_matrix_params, inv_scale)
+        if optimizer_debug:
+            optimizer_step_debug = {
+                'grad_scaler_scale': float(scaler.get_scale()) if dtype == 'float16' else 1.0,
+                'muon_unscale_grads': bool(muon_unscale_grads),
+                'before_step': {
+                    'adamw': collect_named_gradient_stats(named_non_matrix_params),
+                    'muon': collect_named_gradient_stats(named_matrix_params),
+                    'parameters': collect_named_parameter_stats(named_trainable_params),
+                },
+            }
     # clip the gradient
     if grad_clip != 0.0:
-        scaler.unscale_(optimizer if not use_muon or not isinstance(optimizer, list) else optimizer[0])
+        if not use_muon or not isinstance(optimizer, list):
+            scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
     # step the optimizer and scaler if training in fp16
     if use_muon and isinstance(optimizer, list):
         scaler.step(optimizer[0])
+        if optimizer_step_debug is not None:
+            optimizer_step_debug['after_adamw'] = collect_named_parameter_stats(named_trainable_params)
         optimizer[1].step()
+        if optimizer_step_debug is not None:
+            optimizer_step_debug['after_muon'] = collect_named_parameter_stats(named_trainable_params)
     else:
         scaler.step(optimizer)
     scaler.update()
@@ -645,6 +1063,18 @@ while True:
             mfu = raw_model.estimate_mfu(batch_size * gradient_accumulation_steps, dt)
             running_mfu = mfu if running_mfu == -1.0 else 0.9*running_mfu + 0.1*mfu
         print(f"iter {iter_num}: loss {lossf:.4f}, time {dt*1000:.2f}ms, mfu {running_mfu*100:.2f}%")
+        append_jsonl(
+            metrics_jsonl_path,
+            {
+                'event': 'train_step',
+                'iter': iter_num,
+                'loss': float(lossf),
+                'lr': float(lr),
+                'time_ms': float(dt * 1000),
+                'mfu': None if running_mfu < 0 else float(running_mfu * 100),
+                'optimizer_debug': optimizer_step_debug,
+            },
+        )
     iter_num += 1
     local_iter_num += 1
 

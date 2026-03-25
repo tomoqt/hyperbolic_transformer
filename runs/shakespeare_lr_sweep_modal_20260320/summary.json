@@ -1,0 +1,21 @@
+{
+  "model_kind": "hyperbolic",
+  "learning_rate": "5e-4",
+  "run_dir": "/root/hyperbolic_transformer/runs/shakespeare_lr_sweep/hyperbolic_lr_5e_4",
+  "runtime_seconds": null,
+  "success": true,
+  "num_evals": 16,
+  "best_eval": {
+    "step": 1500,
+    "train_loss": 1.3476,
+    "val_loss": 1.5666
+  },
+  "final_eval": {
+    "step": 1500,
+    "train_loss": 1.3476,
+    "val_loss": 1.5666
+  },
+  "checkpoint_path": "/root/hyperbolic_transformer/runs/shakespeare_lr_sweep/hyperbolic_lr_5e_4/ckpt.pt",
+  "checkpoint_iter_num": 1500,
+  "checkpoint_best_val_loss": 1.5665674209594727
+}

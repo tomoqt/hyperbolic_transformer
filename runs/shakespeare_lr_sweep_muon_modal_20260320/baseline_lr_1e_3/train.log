@@ -1,0 +1,132 @@
+Overriding config with config/train_shakespeare_char.py:
+# train a miniature character-level shakespeare model
+# good for debugging and playing on macbooks and such
+
+out_dir = 'Hyperbolic-out-shakespeare-char'
+eval_interval = 10 # keep frequent because we'll overfit
+eval_iters = 20
+log_interval = 1 # don't print too too often
+
+# we expect to overfit on this small dataset, so only save when val improves
+always_save_checkpoint = False
+
+wandb_log = True # override via command line if you like
+wandb_project = 'hyperbolic-shakespeare-char'
+wandb_run_name = 'mini-gpt'
+
+dataset = 'shakespeare_char'
+gradient_accumulation_steps = 1
+batch_size = 12
+block_size = 256 # context of up to 256 previous characters
+curvature = 1.0
+# baby GPT model :)
+n_layer = 6
+n_head = 6
+n_embd = 384
+dropout = 0.0
+use_muon = False
+muon_lr = 1e-2
+muon_momentum = 0.95
+muon_nesterov = True
+muon_ns_steps = 5
+learning_rate = 1e-3 # with baby networks can afford to go a bit higher
+max_iters = 5000
+lr_decay_iters = 5000 # make equal to max_iters usually
+min_lr = 1e-5 # learning_rate / 10 usually
+beta2 = 0.99 # make a bit bigger because number of tokens per iter is small
+
+warmup_iters = 100 # not super necessary potentially
+map_back_after_attention = False
+use_embedding_curvature = False
+# on macbook also add
+# device = 'cpu'  # run on cpu only
+# compile = False # do not torch compile the model
+
+Overriding: use_baseline_model = True
+Overriding: use_muon = True
+Overriding: device = cuda
+Overriding: compile = False
+Overriding: wandb_log = False
+Overriding: learning_rate = 0.001
+Overriding: muon_lr = 0.003
+Overriding: muon_momentum = 0.95
+Overriding: muon_nesterov = True
+Overriding: muon_ns_steps = 5
+Overriding: max_iters = 1500
+Overriding: lr_decay_iters = 1500
+Overriding: eval_interval = 100
+Overriding: log_interval = 50
+Overriding: always_save_checkpoint = True
+Overriding: out_dir = runs/shakespeare_lr_sweep_muon_modal_20260320/baseline_lr_1e_3
+Using baseline model from model_baseline.py
+tokens per iteration will be: 3,072
+Checkpoint directory: runs/shakespeare_lr_sweep_muon_modal_20260320/baseline_lr_1e_3
+found vocab_size = 65 (inside data/shakespeare_char/meta.pkl)
+Initializing a new model from scratch
+Using vocab_size = 65 for new model initialization.
+number of parameters: 10.65M
+num parameters for AdamW: 15, with 128,256 parameters
+num parameters for Muon: 24, with 10,616,832 parameters
+using fused AdamW: True
+step 0: train loss 4.2838, val loss 4.2822
+iter 0: loss 4.2779, time 904.33ms, mfu -100.00%
+iter 50: loss 2.6077, time 23.39ms, mfu 2.99%
+step 100: train loss 2.4759, val loss 2.5117
+saving baseline model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/baseline_lr_1e_3
+iter 100: loss 2.4577, time 429.65ms, mfu 2.70%
+iter 150: loss 2.4454, time 27.54ms, mfu 2.69%
+step 200: train loss 2.3455, val loss 2.3858
+saving baseline model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/baseline_lr_1e_3
+iter 200: loss 2.3382, time 329.58ms, mfu 2.44%
+iter 250: loss 2.2269, time 23.31ms, mfu 2.50%
+step 300: train loss 2.0779, val loss 2.1679
+saving baseline model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/baseline_lr_1e_3
+iter 300: loss 2.1032, time 320.31ms, mfu 2.27%
+iter 350: loss 1.8150, time 23.88ms, mfu 2.33%
+step 400: train loss 1.8149, val loss 1.9498
+saving baseline model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/baseline_lr_1e_3
+iter 400: loss 1.8328, time 314.31ms, mfu 2.12%
+iter 450: loss 1.7068, time 24.22ms, mfu 2.20%
+step 500: train loss 1.6747, val loss 1.7995
+saving baseline model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/baseline_lr_1e_3
+iter 500: loss 1.6953, time 303.51ms, mfu 2.00%
+iter 550: loss 1.5900, time 24.16ms, mfu 2.09%
+step 600: train loss 1.5295, val loss 1.7456
+saving baseline model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/baseline_lr_1e_3
+iter 600: loss 1.5364, time 299.89ms, mfu 1.91%
+iter 650: loss 1.4907, time 32.83ms, mfu 1.93%
+step 700: train loss 1.4873, val loss 1.7024
+saving baseline model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/baseline_lr_1e_3
+iter 700: loss 1.4631, time 314.53ms, mfu 1.76%
+iter 750: loss 1.4593, time 29.64ms, mfu 1.82%
+step 800: train loss 1.4204, val loss 1.6364
+saving baseline model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/baseline_lr_1e_3
+iter 800: loss 1.4005, time 297.01ms, mfu 1.66%
+iter 850: loss 1.3744, time 25.11ms, mfu 1.77%
+step 900: train loss 1.3693, val loss 1.5908
+saving baseline model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/baseline_lr_1e_3
+iter 900: loss 1.3255, time 297.34ms, mfu 1.62%
+iter 950: loss 1.3390, time 24.21ms, mfu 1.74%
+step 1000: train loss 1.3502, val loss 1.6058
+saving baseline model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/baseline_lr_1e_3
+iter 1000: loss 1.3562, time 291.41ms, mfu 1.59%
+iter 1050: loss 1.3105, time 25.11ms, mfu 1.71%
+step 1100: train loss 1.2892, val loss 1.5326
+saving baseline model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/baseline_lr_1e_3
+iter 1100: loss 1.2497, time 302.18ms, mfu 1.56%
+iter 1150: loss 1.3414, time 24.60ms, mfu 1.69%
+step 1200: train loss 1.2541, val loss 1.5190
+saving baseline model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/baseline_lr_1e_3
+iter 1200: loss 1.2784, time 327.09ms, mfu 1.54%
+iter 1250: loss 1.2714, time 24.96ms, mfu 1.67%
+step 1300: train loss 1.2581, val loss 1.5028
+saving baseline model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/baseline_lr_1e_3
+iter 1300: loss 1.2179, time 318.03ms, mfu 1.52%
+iter 1350: loss 1.2216, time 22.65ms, mfu 1.68%
+step 1400: train loss 1.2412, val loss 1.5023
+saving baseline model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/baseline_lr_1e_3
+iter 1400: loss 1.2645, time 288.46ms, mfu 1.54%
+iter 1450: loss 1.2231, time 22.52ms, mfu 1.69%
+step 1500: train loss 1.2325, val loss 1.4936
+saving baseline model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/baseline_lr_1e_3
+iter 1500: loss 1.1336, time 297.09ms, mfu 1.55%

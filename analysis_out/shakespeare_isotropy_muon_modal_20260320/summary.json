@@ -1,0 +1,57 @@
+{
+  "baseline_report": "analysis_out/shakespeare_isotropy_muon_modal_20260320/baseline_isotropy.json",
+  "hyperbolic_report": "analysis_out/shakespeare_isotropy_muon_modal_20260320/hyperbolic_isotropy.json",
+  "common_layers": [
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5"
+  ],
+  "layer_deltas": {
+    "0": {
+      "normalized_spectral_entropy_delta": -0.10916483402252197,
+      "effective_rank_delta": -30.40018081665039,
+      "participation_ratio_delta": -13.459461212158203,
+      "top1_share_delta": 0.09622663259506226,
+      "condition_number_delta": 4305.004638671875
+    },
+    "1": {
+      "normalized_spectral_entropy_delta": -0.005482852458953857,
+      "effective_rank_delta": -1.678741455078125,
+      "participation_ratio_delta": -2.4725570678710938,
+      "top1_share_delta": -0.007982045412063599,
+      "condition_number_delta": -1466.572021484375
+    },
+    "2": {
+      "normalized_spectral_entropy_delta": 0.020604312419891357,
+      "effective_rank_delta": 6.128948211669922,
+      "participation_ratio_delta": 0.6035366058349609,
+      "top1_share_delta": -0.026849985122680664,
+      "condition_number_delta": -1917.01904296875
+    },
+    "3": {
+      "normalized_spectral_entropy_delta": 0.04241609573364258,
+      "effective_rank_delta": 11.81124496459961,
+      "participation_ratio_delta": 3.673312187194824,
+      "top1_share_delta": -0.0539797842502594,
+      "condition_number_delta": -3264.22998046875
+    },
+    "4": {
+      "normalized_spectral_entropy_delta": 0.08270925283432007,
+      "effective_rank_delta": 21.05651092529297,
+      "participation_ratio_delta": 8.215967178344727,
+      "top1_share_delta": -0.09853388369083405,
+      "condition_number_delta": -4618.340576171875
+    },
+    "5": {
+      "normalized_spectral_entropy_delta": 0.16735607385635376,
+      "effective_rank_delta": 33.49644660949707,
+      "participation_ratio_delta": 13.362346172332764,
+      "top1_share_delta": -0.1840219795703888,
+      "condition_number_delta": -9552.71435546875
+    }
+  },
+  "last_layer": "5"
+}

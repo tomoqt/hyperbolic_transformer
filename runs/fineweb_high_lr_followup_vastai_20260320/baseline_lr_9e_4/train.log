@@ -1,0 +1,190 @@
+Overriding config with config/train_fineweb_small.py:
+# config for training GPT-2 (124M) down to very nice loss of ~2.85 on 1 node of 8X A100 40GB
+# launch as the following (e.g. in a screen session) and wait ~5 days:
+# $ torchrun --standalone --nproc_per_node=8 train.py config/train_gpt2.py
+
+wandb_log = True
+wandb_project = 'fineweb_mixed_curvature'
+wandb_run_name='small_fineweb'
+
+# these make the total batch size be ~0.5M
+# 12 batch size * 1024 block size * 5 gradaccum * 8 GPUs = 491,520
+batch_size = 1
+block_size = 512
+gradient_accumulation_steps = 8
+dataset = 'fineweb'
+
+# this makes total number of tokens be 300B
+max_iters = 60000
+lr_decay_iters = 60000
+
+# eval stuff
+eval_interval = 100
+eval_iters = 20
+log_interval = 10
+
+curvature = 1.0
+
+n_layer = 6
+n_head = 6
+n_embd = 384
+dropout = 0.0
+use_muon = False
+muon_lr = 1e-2
+muon_momentum = 0.95
+muon_nesterov = True
+muon_ns_steps = 5
+learning_rate = 1e-4
+max_iters = 60000
+lr_decay_iters = 60000
+min_lr = 1e-5 
+beta2 = 0.99 
+
+warmup_iters = 100 # not super necessary potentially
+use_embedding_curvature = False
+use_baseline_model = False
+dynamic_curvature = True
+per_head_curvature = True
+Overriding: use_baseline_model = True
+Overriding: device = cuda
+Overriding: compile = False
+Overriding: wandb_log = False
+Overriding: learning_rate = 0.0009
+Overriding: max_iters = 1500
+Overriding: lr_decay_iters = 1500
+Overriding: eval_interval = 50
+Overriding: log_interval = 25
+Overriding: always_save_checkpoint = True
+Overriding: out_dir = runs/fineweb_high_lr_followup/baseline_lr_9e_4
+Using baseline model from model_baseline.py
+tokens per iteration will be: 4,096
+Checkpoint directory: runs/fineweb_high_lr_followup/baseline_lr_9e_4
+found vocab_size = 50257 (inside data/fineweb/meta.pkl)
+Initializing a new model from scratch
+Using vocab_size = 50257 for new model initialization.
+number of parameters: 29.92M
+num decayed parameter tensors: 26, with 30,112,128 parameters
+num non-decayed parameter tensors: 13, with 4,992 parameters
+using fused AdamW: True
+step 0: train loss 10.8872, val loss 10.8809
+iter 0: loss 10.8564, time 771.83ms, mfu -100.00%
+iter 25: loss 9.5576, time 115.34ms, mfu 2.20%
+step 50: train loss 7.6114, val loss 7.5817
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 50: loss 7.1146, time 661.88ms, mfu 2.02%
+iter 75: loss 7.5391, time 112.13ms, mfu 2.05%
+step 100: train loss 7.1109, val loss 7.2630
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 100: loss 7.4082, time 793.45ms, mfu 1.87%
+iter 125: loss 7.5371, time 153.33ms, mfu 1.85%
+step 150: train loss 6.8240, val loss 6.7263
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 150: loss 6.1533, time 745.22ms, mfu 1.70%
+iter 175: loss 7.4474, time 112.03ms, mfu 1.76%
+step 200: train loss 6.7781, val loss 6.5779
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 200: loss 7.5686, time 762.54ms, mfu 1.62%
+iter 225: loss 6.7782, time 144.05ms, mfu 1.63%
+step 250: train loss 6.9190, val loss 6.8980
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 250: loss 7.0458, time 830.88ms, mfu 1.50%
+iter 275: loss 5.8768, time 123.90ms, mfu 1.55%
+step 300: train loss 6.4536, val loss 6.7696
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 300: loss 6.5155, time 856.27ms, mfu 1.43%
+iter 325: loss 7.3849, time 124.86ms, mfu 1.49%
+step 350: train loss 6.7049, val loss 6.5298
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 350: loss 6.8658, time 803.51ms, mfu 1.37%
+iter 375: loss 6.3815, time 123.77ms, mfu 1.44%
+step 400: train loss 6.3427, val loss 6.4251
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 400: loss 6.4821, time 803.80ms, mfu 1.33%
+iter 425: loss 6.5703, time 124.59ms, mfu 1.40%
+step 450: train loss 6.4060, val loss 6.6560
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 450: loss 6.1100, time 753.71ms, mfu 1.29%
+iter 475: loss 6.3563, time 95.67ms, mfu 1.43%
+step 500: train loss 6.6976, val loss 6.5725
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 500: loss 6.0949, time 792.08ms, mfu 1.32%
+iter 525: loss 6.5119, time 94.34ms, mfu 1.46%
+step 550: train loss 6.4944, val loss 6.3267
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 550: loss 6.3291, time 853.78ms, mfu 1.34%
+iter 575: loss 7.6126, time 123.53ms, mfu 1.41%
+step 600: train loss 6.4121, val loss 6.2158
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 600: loss 6.4064, time 757.19ms, mfu 1.30%
+iter 625: loss 6.4116, time 123.31ms, mfu 1.38%
+step 650: train loss 6.3260, val loss 6.4340
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 650: loss 7.5443, time 772.36ms, mfu 1.28%
+iter 675: loss 7.3534, time 66.44ms, mfu 1.53%
+step 700: train loss 6.2162, val loss 6.1964
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 700: loss 5.8836, time 735.18ms, mfu 1.41%
+iter 725: loss 5.8766, time 66.80ms, mfu 1.65%
+step 750: train loss 6.0282, val loss 6.3116
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 750: loss 5.9470, time 885.14ms, mfu 1.51%
+iter 775: loss 5.8743, time 102.94ms, mfu 1.61%
+step 800: train loss 6.1997, val loss 6.1724
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 800: loss 5.9659, time 823.42ms, mfu 1.48%
+iter 825: loss 6.3638, time 123.74ms, mfu 1.54%
+step 850: train loss 6.2645, val loss 6.2530
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 850: loss 6.6570, time 787.81ms, mfu 1.42%
+iter 875: loss 6.7045, time 73.84ms, mfu 1.62%
+step 900: train loss 6.3494, val loss 6.1699
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 900: loss 5.5794, time 735.66ms, mfu 1.49%
+iter 925: loss 5.9182, time 86.99ms, mfu 1.63%
+step 950: train loss 6.0984, val loss 6.3390
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 950: loss 5.7390, time 738.01ms, mfu 1.51%
+iter 975: loss 5.9786, time 104.71ms, mfu 1.60%
+step 1000: train loss 6.1150, val loss 6.1109
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 1000: loss 5.5956, time 817.66ms, mfu 1.47%
+iter 1025: loss 7.4866, time 103.70ms, mfu 1.57%
+step 1050: train loss 6.1292, val loss 5.9342
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 1050: loss 5.9978, time 784.99ms, mfu 1.44%
+iter 1075: loss 5.7007, time 84.82ms, mfu 1.60%
+step 1100: train loss 6.1040, val loss 6.0146
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 1100: loss 5.5632, time 779.41ms, mfu 1.47%
+iter 1125: loss 5.7635, time 81.78ms, mfu 1.64%
+step 1150: train loss 5.8332, val loss 6.0157
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 1150: loss 5.1861, time 787.49ms, mfu 1.50%
+iter 1175: loss 6.0056, time 80.80ms, mfu 1.67%
+step 1200: train loss 5.9299, val loss 5.9340
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 1200: loss 6.1398, time 766.60ms, mfu 1.53%
+iter 1225: loss 6.1537, time 123.32ms, mfu 1.59%
+step 1250: train loss 5.9392, val loss 6.1287
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 1250: loss 6.4705, time 786.24ms, mfu 1.46%
+iter 1275: loss 5.9837, time 144.33ms, mfu 1.49%
+step 1300: train loss 5.9827, val loss 6.0308
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 1300: loss 5.8557, time 841.83ms, mfu 1.37%
+iter 1325: loss 6.3862, time 143.64ms, mfu 1.41%
+step 1350: train loss 5.9105, val loss 6.0666
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 1350: loss 6.0800, time 800.44ms, mfu 1.30%
+iter 1375: loss 5.9562, time 144.15ms, mfu 1.35%
+step 1400: train loss 5.9623, val loss 6.1655
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 1400: loss 6.0744, time 858.82ms, mfu 1.24%
+iter 1425: loss 6.2923, time 143.87ms, mfu 1.30%
+step 1450: train loss 6.0893, val loss 5.8761
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 1450: loss 5.9469, time 854.51ms, mfu 1.20%
+iter 1475: loss 5.5512, time 143.81ms, mfu 1.25%
+step 1500: train loss 5.7976, val loss 6.0958
+saving baseline model checkpoint to runs/fineweb_high_lr_followup/baseline_lr_9e_4
+iter 1500: loss 6.4150, time 836.23ms, mfu 1.16%

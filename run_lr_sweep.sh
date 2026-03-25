@@ -1,5 +1,7 @@
 #!/bin/bash
 
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+
 # Learning rate sweep script
 # Runs 5 different learning rates from 1e-3 to 1e-5
 # Tests both baseline model (True) and hyperbolic model (False)
@@ -13,12 +15,14 @@ model_types=("True" "False")
 
 # New wandb project for the sweep
 wandb_project="fineweb_lr_sweep"
+run_root="runs/fineweb_lr_sweep"
 
 echo "Starting learning rate sweep..."
 echo "Learning rates: ${learning_rates[@]}"
 echo "Model types: baseline=${model_types[@]}"
 echo "Wandb project: $wandb_project"
 echo "Max iterations: 10000"
+mkdir -p "$run_root"
 
 # Loop through model types (baseline True/False)
 for use_baseline in "${model_types[@]}"; do
@@ -32,6 +36,8 @@ for use_baseline in "${model_types[@]}"; do
         fi
         
         run_name="${model_name}_lr_${lr}"
+        out_dir="${run_root}/${run_name}"
+        mkdir -p "$out_dir"
         
         echo ""
         echo "=========================================="
@@ -41,13 +47,14 @@ for use_baseline in "${model_types[@]}"; do
         echo "=========================================="
         
         # Run the training with overridden parameters
-        python train.py \
+        "$PYTHON_BIN" train.py \
             config/train_fineweb_medium.py \
             --wandb_project="$wandb_project" \
             --wandb_run_name="$run_name" \
             --learning_rate=$lr \
             --max_iters=10000 \
             --lr_decay_iters=10000 \
+            --out_dir="$out_dir" \
             --use_baseline_model=$use_baseline \
             --use_muon=False \
             --eval_interval=500 \

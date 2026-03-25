@@ -1,0 +1,14 @@
+{
+  "model_kind": "baseline",
+  "learning_rate": "9e-4",
+  "run_dir": "runs/fineweb_high_lr_followup/baseline_lr_9e_4",
+  "runtime_seconds": null,
+  "success": false,
+  "num_evals": 0,
+  "history_path": "runs/fineweb_high_lr_followup/baseline_lr_9e_4/history.json",
+  "best_eval": null,
+  "final_eval": null,
+  "checkpoint_path": null,
+  "checkpoint_iter_num": null,
+  "checkpoint_best_val_loss": null
+}

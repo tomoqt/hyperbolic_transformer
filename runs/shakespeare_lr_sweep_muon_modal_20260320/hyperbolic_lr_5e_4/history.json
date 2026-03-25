@@ -1,0 +1,17 @@
+[
+  {
+    "step": 0,
+    "train_loss": 4.6517,
+    "val_loss": 4.6416
+  },
+  {
+    "step": 100,
+    "train_loss": 2.9409,
+    "val_loss": 2.9425
+  },
+  {
+    "step": 200,
+    "train_loss": 2.2882,
+    "val_loss": 2.3186
+  }
+]

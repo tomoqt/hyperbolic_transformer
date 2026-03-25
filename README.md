@@ -32,11 +32,70 @@ We can log curvature, interestingly, block 0 usuall seems to have increasing cur
 Unfortunately i haven't really logged these properly, so i can't really systematically give you an idea about these. But cool to look at. 
 
 
-## Anisotpy vs isotropy
+## Systematic Experiments (March 2026)
+
+All scripts, results (JSON summaries + plots), and analysis code are committed to the repo under `runs/` and `analysis_out/`. Model checkpoints (`.pt` files) are excluded from git due to size but can be reproduced by re-running the scripts below.
+
+### LR Sweep — Shakespeare-char, Adam
+
+Script: `run_shakespeare_lr_sweep.sh`
+Results: `runs/shakespeare_lr_sweep_modal_20260320/`
+
+| Model | LR | Best Val Loss |
+|-------|-----|--------------|
+| Baseline | 1e-3 | 1.5930 |
+| Baseline | 5e-4 | 1.6434 |
+| Baseline | 2e-4 | 1.7761 |
+| Baseline | 1e-4 | 1.9027 |
+| **Hyperbolic** | **1e-3** | **1.5332** |
+| Hyperbolic | 5e-4 | 1.5666 |
+| Hyperbolic | 2e-4 | 1.6618 |
+| Hyperbolic | 1e-4 | 1.7771 |
+
+**Finding**: Hyperbolic model consistently outperforms baseline across all LRs on Shakespeare-char with Adam. Best gap: 1.5332 vs 1.5930 (~4%) at lr=1e-3.
+
+### LR Sweep — Shakespeare-char, Muon
+
+Script: `run_shakespeare_lr_sweep_muon.sh`
+Results: `runs/shakespeare_lr_sweep_muon_modal_20260320/`
+
+**Finding**: Hyperbolic model diverged/collapsed early at all tested LRs (1e-4–1e-3) with Muon optimizer. Baseline reached val_loss=1.4936 at lr=1e-3. The Möbius residual stream appears incompatible with Muon's aggressive weight orthogonalization at these hyperparameters — this is an open problem.
+
+### LR Sweep — FineWeb-10B, Adam
+
+Script: `run_fineweb_lr_sweep.sh`
+Results: `runs/fineweb_lr_sweep_modal_20260320/`
+
+| Model | LR | Best Val Loss |
+|-------|-----|--------------|
+| Baseline | 1e-3 | 5.8773 |
+| Baseline | 5e-4 | 5.9985 |
+| Baseline | 2e-4 | 6.2020 |
+| Baseline | 1e-4 | 6.3885 |
+| **Hyperbolic** | **1e-3** | **5.7433** |
+| Hyperbolic | 5e-4 | 5.8759 |
+| Hyperbolic | 2e-4 | 6.2120 |
+| Hyperbolic | 1e-4 | 6.4985 |
+
+**Finding**: Hyperbolic model also outperforms on FineWeb at higher LRs (1e-3, 5e-4). At lower LRs the gap closes or reverses slightly.
+
+### Isotropy Analysis
+
+Scripts: `run_shakespeare_isotropy.sh`, `run_fineweb_isotropy.sh`, `run_shakespeare_isotropy_muon.sh`, `run_fineweb_isotropy_muon.sh`
+Analysis script: `analyze_representations.py`
+Results: `analysis_out/`
+
+Isotropy measured via normalized spectral entropy and effective rank of per-layer hidden states, comparing hyperbolic vs baseline at the end of training.
+
+**Consistent pattern across all settings**: Layers 0–1 are *less* isotropic in the hyperbolic model (lower spectral entropy / effective rank), while layers 3–5 are *more* isotropic (higher spectral entropy / effective rank delta up to +0.26, effective rank delta up to +59). The model appears to use early layers for geometric projection and later layers for more spread-out, isotropic computation.
+
+Plots committed in `analysis_out/*/isotropy_metrics_by_layer.png` and `analysis_out/*/isotropy_deltas_by_layer.png`.
+
+## Anisotropy vs Isotropy
 
 Ok, elephant in the room. Effect seems to be there for at least the shakespeare-char. On fineweb, it looks more like a mixed bag. You can find some scripts in the repo with results about this. I attach some examples:
 
-shakespeare-char: 
+shakespeare-char:
 
 ![image](https://github.com/user-attachments/assets/7a41ef52-fc9e-424f-b2b4-cbd08ea7700d)
 
@@ -93,7 +152,41 @@ Both datasets are prepared to be used with the training scripts. For mixed curva
 
 ## Getting Started
 
-[Installation and usage instructions will be added as the project develops]
+### Requirements
+
+```sh
+pip install torch numpy matplotlib
+# For FineWeb data prep:
+pip install datasets tiktoken
+```
+
+### Replicating Experiments
+
+All experiment scripts are self-contained bash scripts. Set `DEVICE=cuda` (default) or `DEVICE=cpu` for local testing.
+
+```sh
+# Prepare data
+python data/shakespeare_char/prepare.py
+python data/fineweb/prepare.py   # downloads ~10GB
+
+# LR sweeps
+./run_shakespeare_lr_sweep.sh            # Adam, Shakespeare
+./run_shakespeare_lr_sweep_muon.sh       # Muon, Shakespeare
+./run_fineweb_lr_sweep.sh               # Adam, FineWeb
+
+# Isotropy studies (trains two models then runs analysis)
+./run_shakespeare_isotropy.sh
+./run_shakespeare_isotropy_muon.sh
+./run_fineweb_isotropy.sh
+./run_fineweb_isotropy_muon.sh
+
+# Summarise / plot results
+python summarize_lr_sweep.py --run_root runs/shakespeare_lr_sweep --out_dir runs/shakespeare_lr_sweep
+python plot_lr_sweep.py --run_root runs/shakespeare_lr_sweep
+python analyze_representations.py       # generates analysis_out/ plots
+```
+
+All runs produce `summary.json` / `history.json` files inside the run directory so results can be inspected or re-plotted without re-training.
 
 ## Acknowledgements
 

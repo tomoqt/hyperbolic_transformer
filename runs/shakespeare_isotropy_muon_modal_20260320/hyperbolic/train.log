@@ -1,0 +1,132 @@
+Overriding config with config/train_shakespeare_char.py:
+# train a miniature character-level shakespeare model
+# good for debugging and playing on macbooks and such
+
+out_dir = 'Hyperbolic-out-shakespeare-char'
+eval_interval = 10 # keep frequent because we'll overfit
+eval_iters = 20
+log_interval = 1 # don't print too too often
+
+# we expect to overfit on this small dataset, so only save when val improves
+always_save_checkpoint = False
+
+wandb_log = True # override via command line if you like
+wandb_project = 'hyperbolic-shakespeare-char'
+wandb_run_name = 'mini-gpt'
+
+dataset = 'shakespeare_char'
+gradient_accumulation_steps = 1
+batch_size = 12
+block_size = 256 # context of up to 256 previous characters
+curvature = 1.0
+# baby GPT model :)
+n_layer = 6
+n_head = 6
+n_embd = 384
+dropout = 0.0
+use_muon = False
+muon_lr = 1e-2
+muon_momentum = 0.95
+muon_nesterov = True
+muon_ns_steps = 5
+learning_rate = 1e-3 # with baby networks can afford to go a bit higher
+max_iters = 5000
+lr_decay_iters = 5000 # make equal to max_iters usually
+min_lr = 1e-5 # learning_rate / 10 usually
+beta2 = 0.99 # make a bit bigger because number of tokens per iter is small
+
+warmup_iters = 100 # not super necessary potentially
+map_back_after_attention = False
+use_embedding_curvature = False
+# on macbook also add
+# device = 'cpu'  # run on cpu only
+# compile = False # do not torch compile the model
+
+Overriding: use_baseline_model = False
+Overriding: use_muon = True
+Overriding: device = cuda
+Overriding: compile = False
+Overriding: wandb_log = False
+Overriding: max_iters = 1500
+Overriding: lr_decay_iters = 1500
+Overriding: eval_interval = 100
+Overriding: log_interval = 50
+Overriding: always_save_checkpoint = True
+Overriding: out_dir = runs/shakespeare_isotropy_muon_modal_20260320/hyperbolic
+Overriding: muon_momentum = 0.95
+Overriding: muon_nesterov = True
+Overriding: muon_ns_steps = 5
+Overriding: learning_rate = 0.0002
+Overriding: muon_lr = 0.0002
+Using standard model from model.py
+tokens per iteration will be: 3,072
+Checkpoint directory: runs/shakespeare_isotropy_muon_modal_20260320/hyperbolic
+found vocab_size = 65 (inside data/shakespeare_char/meta.pkl)
+Initializing a new model from scratch
+Using vocab_size = 65 for new model initialization.
+number of parameters: 10.66M
+num parameters for AdamW: 27, with 128,328 parameters
+num parameters for Muon: 30, with 10,630,656 parameters
+using fused AdamW: True
+step 0: train loss 4.6517, val loss 4.6416
+iter 0: loss 4.6756, time 1887.85ms, mfu -100.00%
+iter 50: loss 4.2338, time 97.55ms, mfu 0.72%
+step 100: train loss 3.4203, val loss 3.4267
+saving hyperbolic model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/hyperbolic
+iter 100: loss 3.3691, time 1080.23ms, mfu 0.65%
+iter 150: loss 3.1291, time 87.20ms, mfu 0.67%
+step 200: train loss 3.0140, val loss 3.0173
+saving hyperbolic model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/hyperbolic
+iter 200: loss 3.0114, time 1045.85ms, mfu 0.61%
+iter 250: loss 2.8962, time 85.81ms, mfu 0.63%
+step 300: train loss 2.7994, val loss 2.8080
+saving hyperbolic model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/hyperbolic
+iter 300: loss 2.8092, time 1098.88ms, mfu 0.57%
+iter 350: loss 2.7082, time 90.51ms, mfu 0.59%
+step 400: train loss 2.6410, val loss 2.6408
+saving hyperbolic model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/hyperbolic
+iter 400: loss 2.6203, time 1036.57ms, mfu 0.54%
+iter 450: loss 2.5916, time 87.42ms, mfu 0.57%
+step 500: train loss 2.5208, val loss 2.5297
+saving hyperbolic model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/hyperbolic
+iter 500: loss 2.5478, time 1045.86ms, mfu 0.52%
+iter 550: loss 2.4712, time 94.89ms, mfu 0.54%
+step 600: train loss 2.4256, val loss 2.4349
+saving hyperbolic model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/hyperbolic
+iter 600: loss 2.4420, time 1197.80ms, mfu 0.49%
+iter 650: loss 2.4034, time 88.19ms, mfu 0.52%
+step 700: train loss 2.3647, val loss 2.3738
+saving hyperbolic model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/hyperbolic
+iter 700: loss 2.3938, time 1134.77ms, mfu 0.47%
+iter 750: loss 2.3498, time 90.39ms, mfu 0.50%
+step 800: train loss 2.3158, val loss 2.3217
+saving hyperbolic model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/hyperbolic
+iter 800: loss 2.2988, time 1061.76ms, mfu 0.46%
+iter 850: loss 2.2923, time 95.94ms, mfu 0.49%
+step 900: train loss 2.2837, val loss 2.3063
+saving hyperbolic model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/hyperbolic
+iter 900: loss 2.3360, time 1237.62ms, mfu 0.44%
+iter 950: loss 2.3114, time 101.08ms, mfu 0.47%
+step 1000: train loss 2.2589, val loss 2.2859
+saving hyperbolic model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/hyperbolic
+iter 1000: loss 2.2524, time 1154.63ms, mfu 0.43%
+iter 1050: loss 2.2588, time 92.99ms, mfu 0.46%
+step 1100: train loss 2.2353, val loss 2.2663
+saving hyperbolic model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/hyperbolic
+iter 1100: loss 2.2493, time 1105.79ms, mfu 0.42%
+iter 1150: loss 2.2727, time 107.49ms, mfu 0.44%
+step 1200: train loss 2.2287, val loss 2.2518
+saving hyperbolic model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/hyperbolic
+iter 1200: loss 2.2142, time 1371.75ms, mfu 0.40%
+iter 1250: loss 2.2186, time 110.46ms, mfu 0.43%
+step 1300: train loss 2.2105, val loss 2.2359
+saving hyperbolic model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/hyperbolic
+iter 1300: loss 2.2689, time 1270.19ms, mfu 0.39%
+iter 1350: loss 2.2421, time 171.31ms, mfu 0.39%
+step 1400: train loss 2.2184, val loss 2.2462
+saving hyperbolic model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/hyperbolic
+iter 1400: loss 2.2198, time 1217.55ms, mfu 0.36%
+iter 1450: loss 2.1810, time 98.17ms, mfu 0.39%
+step 1500: train loss 2.2032, val loss 2.2491
+saving hyperbolic model checkpoint to runs/shakespeare_isotropy_muon_modal_20260320/hyperbolic
+iter 1500: loss 2.1946, time 1194.32ms, mfu 0.36%

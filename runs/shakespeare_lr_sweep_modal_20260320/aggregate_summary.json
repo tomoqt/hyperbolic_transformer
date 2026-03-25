@@ -1,0 +1,172 @@
+{
+  "runs": [
+    {
+      "model_kind": "baseline",
+      "learning_rate": "1e-3",
+      "run_dir": "/root/hyperbolic_transformer/runs/shakespeare_lr_sweep/baseline_lr_1e_3",
+      "runtime_seconds": null,
+      "success": true,
+      "num_evals": 16,
+      "best_eval": {
+        "step": 1500,
+        "train_loss": 1.389,
+        "val_loss": 1.593
+      },
+      "final_eval": {
+        "step": 1500,
+        "train_loss": 1.389,
+        "val_loss": 1.593
+      },
+      "checkpoint_path": "/root/hyperbolic_transformer/runs/shakespeare_lr_sweep/baseline_lr_1e_3/ckpt.pt",
+      "checkpoint_iter_num": 1500,
+      "checkpoint_best_val_loss": 1.5930373668670654
+    },
+    {
+      "model_kind": "baseline",
+      "learning_rate": "1e-4",
+      "run_dir": "/root/hyperbolic_transformer/runs/shakespeare_lr_sweep/baseline_lr_1e_4",
+      "runtime_seconds": null,
+      "success": true,
+      "num_evals": 16,
+      "best_eval": {
+        "step": 1500,
+        "train_loss": 1.7997,
+        "val_loss": 1.9027
+      },
+      "final_eval": {
+        "step": 1500,
+        "train_loss": 1.7997,
+        "val_loss": 1.9027
+      },
+      "checkpoint_path": "/root/hyperbolic_transformer/runs/shakespeare_lr_sweep/baseline_lr_1e_4/ckpt.pt",
+      "checkpoint_iter_num": 1500,
+      "checkpoint_best_val_loss": 1.902703881263733
+    },
+    {
+      "model_kind": "baseline",
+      "learning_rate": "2e-4",
+      "run_dir": "/root/hyperbolic_transformer/runs/shakespeare_lr_sweep/baseline_lr_2e_4",
+      "runtime_seconds": null,
+      "success": true,
+      "num_evals": 16,
+      "best_eval": {
+        "step": 1500,
+        "train_loss": 1.6222,
+        "val_loss": 1.7761
+      },
+      "final_eval": {
+        "step": 1500,
+        "train_loss": 1.6222,
+        "val_loss": 1.7761
+      },
+      "checkpoint_path": "/root/hyperbolic_transformer/runs/shakespeare_lr_sweep/baseline_lr_2e_4/ckpt.pt",
+      "checkpoint_iter_num": 1500,
+      "checkpoint_best_val_loss": 1.7760823965072632
+    },
+    {
+      "model_kind": "baseline",
+      "learning_rate": "5e-4",
+      "run_dir": "/root/hyperbolic_transformer/runs/shakespeare_lr_sweep/baseline_lr_5e_4",
+      "runtime_seconds": null,
+      "success": true,
+      "num_evals": 16,
+      "best_eval": {
+        "step": 1500,
+        "train_loss": 1.4563,
+        "val_loss": 1.6434
+      },
+      "final_eval": {
+        "step": 1500,
+        "train_loss": 1.4563,
+        "val_loss": 1.6434
+      },
+      "checkpoint_path": "/root/hyperbolic_transformer/runs/shakespeare_lr_sweep/baseline_lr_5e_4/ckpt.pt",
+      "checkpoint_iter_num": 1500,
+      "checkpoint_best_val_loss": 1.6434381008148193
+    },
+    {
+      "model_kind": "hyperbolic",
+      "learning_rate": "1e-3",
+      "run_dir": "/root/hyperbolic_transformer/runs/shakespeare_lr_sweep/hyperbolic_lr_1e_3",
+      "runtime_seconds": null,
+      "success": true,
+      "num_evals": 16,
+      "best_eval": {
+        "step": 1500,
+        "train_loss": 1.3014,
+        "val_loss": 1.5332
+      },
+      "final_eval": {
+        "step": 1500,
+        "train_loss": 1.3014,
+        "val_loss": 1.5332
+      },
+      "checkpoint_path": "/root/hyperbolic_transformer/runs/shakespeare_lr_sweep/hyperbolic_lr_1e_3/ckpt.pt",
+      "checkpoint_iter_num": 1500,
+      "checkpoint_best_val_loss": 1.5332106351852417
+    },
+    {
+      "model_kind": "hyperbolic",
+      "learning_rate": "1e-4",
+      "run_dir": "/root/hyperbolic_transformer/runs/shakespeare_lr_sweep/hyperbolic_lr_1e_4",
+      "runtime_seconds": null,
+      "success": true,
+      "num_evals": 16,
+      "best_eval": {
+        "step": 1300,
+        "train_loss": 1.6347,
+        "val_loss": 1.7771
+      },
+      "final_eval": {
+        "step": 1500,
+        "train_loss": 1.6097,
+        "val_loss": 1.7866
+      },
+      "checkpoint_path": "/root/hyperbolic_transformer/runs/shakespeare_lr_sweep/hyperbolic_lr_1e_4/ckpt.pt",
+      "checkpoint_iter_num": 1500,
+      "checkpoint_best_val_loss": 1.7866157293319702
+    },
+    {
+      "model_kind": "hyperbolic",
+      "learning_rate": "2e-4",
+      "run_dir": "/root/hyperbolic_transformer/runs/shakespeare_lr_sweep/hyperbolic_lr_2e_4",
+      "runtime_seconds": null,
+      "success": true,
+      "num_evals": 16,
+      "best_eval": {
+        "step": 1300,
+        "train_loss": 1.4996,
+        "val_loss": 1.6618
+      },
+      "final_eval": {
+        "step": 1500,
+        "train_loss": 1.4733,
+        "val_loss": 1.6682
+      },
+      "checkpoint_path": "/root/hyperbolic_transformer/runs/shakespeare_lr_sweep/hyperbolic_lr_2e_4/ckpt.pt",
+      "checkpoint_iter_num": 1500,
+      "checkpoint_best_val_loss": 1.6681575775146484
+    },
+    {
+      "model_kind": "hyperbolic",
+      "learning_rate": "5e-4",
+      "run_dir": "/root/hyperbolic_transformer/runs/shakespeare_lr_sweep/hyperbolic_lr_5e_4",
+      "runtime_seconds": null,
+      "success": true,
+      "num_evals": 16,
+      "best_eval": {
+        "step": 1500,
+        "train_loss": 1.3476,
+        "val_loss": 1.5666
+      },
+      "final_eval": {
+        "step": 1500,
+        "train_loss": 1.3476,
+        "val_loss": 1.5666
+      },
+      "checkpoint_path": "/root/hyperbolic_transformer/runs/shakespeare_lr_sweep/hyperbolic_lr_5e_4/ckpt.pt",
+      "checkpoint_iter_num": 1500,
+      "checkpoint_best_val_loss": 1.5665674209594727
+    }
+  ]
+}

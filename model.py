@@ -22,7 +22,57 @@ def clamp_curvature(c):
     else:
         return max(1e-4, min(c, 1.0))
 
-def mobius_addition(x, y, c, n_head=None):
+def _tensor_abs_max(x):
+    if not isinstance(x, torch.Tensor) or x.numel() == 0:
+        return 0.0
+    finite_mask = torch.isfinite(x)
+    if not finite_mask.any():
+        return float('nan')
+    return float(x.detach()[finite_mask].abs().max().cpu().item())
+
+
+def _tensor_nonfinite_count(x):
+    if not isinstance(x, torch.Tensor) or x.numel() == 0:
+        return 0
+    return int((~torch.isfinite(x)).sum().item())
+
+
+def _record_debug_stat(debug_state, key, value):
+    if debug_state is not None:
+        debug_state[key] = value
+
+
+def project_to_ball(x, c, n_head=None, eps=1e-3):
+    """Project points back inside the Poincare ball implied by curvature c."""
+    c_clamped = clamp_curvature(c)
+    B_dim = x.shape[0] if isinstance(x, torch.Tensor) and x.ndim > 0 else 0
+
+    use_per_head_path = False
+    c_r = None
+    if n_head is not None and isinstance(c_clamped, torch.Tensor) and B_dim > 0:
+        if c_clamped.ndim == 1 and c_clamped.shape[0] == n_head:
+            c_r = c_clamped.view(1, 1, n_head, 1)
+            use_per_head_path = True
+        elif c_clamped.ndim == 2 and c_clamped.shape[0] == B_dim and c_clamped.shape[1] == n_head:
+            c_r = c_clamped.view(B_dim, 1, n_head, 1)
+            use_per_head_path = True
+
+    if use_per_head_path:
+        B, T, C_embed = x.shape
+        hs = C_embed // n_head
+        x_r = x.view(B, T, n_head, hs)
+        norms = torch.linalg.vector_norm(x_r, dim=-1, keepdim=True).clamp_min(1e-9)
+        radius = (1.0 - eps) / torch.sqrt(torch.abs(c_r) + 1e-9)
+        scale = torch.clamp(radius / norms, max=1.0)
+        return (x_r * scale).view(B, T, C_embed)
+
+    norms = torch.linalg.vector_norm(x, dim=-1, keepdim=True).clamp_min(1e-9)
+    radius = (1.0 - eps) / torch.sqrt(torch.abs(c_clamped) + 1e-9)
+    scale = torch.clamp(radius / norms, max=1.0)
+    return x * scale
+
+
+def mobius_addition(x, y, c, n_head=None, debug_state=None, stage_prefix=None):
     """Mobius addition in hyperbolic space with curvature c"""
     c_clamped = clamp_curvature(c)
 
@@ -61,7 +111,14 @@ def mobius_addition(x, y, c, n_head=None):
                       (1 - c_r * x_norm_sq_r) * y_r
         denominator_r = 1 + 2 * c_r * inner_product_r + c_r**2 * x_norm_sq_r * y_norm_sq_r
         
+        if stage_prefix is not None:
+            _record_debug_stat(debug_state, f"{stage_prefix}/denominator_min_abs", float(denominator_r.detach().abs().min().cpu().item()))
+            _record_debug_stat(debug_state, f"{stage_prefix}/x_abs_max", _tensor_abs_max(x_r))
+            _record_debug_stat(debug_state, f"{stage_prefix}/y_abs_max", _tensor_abs_max(y_r))
         result_r = numerator_r / (denominator_r + 1e-9) # Add epsilon to denominator
+        if stage_prefix is not None:
+            _record_debug_stat(debug_state, f"{stage_prefix}/result_abs_max", _tensor_abs_max(result_r))
+            _record_debug_stat(debug_state, f"{stage_prefix}/result_nonfinite_count", _tensor_nonfinite_count(result_r))
         return result_r.view(B, T, C_embed) # Reshape back
     else:
         # Original logic for scalar c or c broadcast over embedding dim
@@ -72,7 +129,15 @@ def mobius_addition(x, y, c, n_head=None):
         numerator = (1 + 2*c_clamped * inner_product + c_clamped * y_norm_sq) * x + \
                     (1 - c_clamped * x_norm_sq) * y
         denominator = 1 + 2*c_clamped * inner_product + (c_clamped ** 2) * (x_norm_sq) * (y_norm_sq)
-        return numerator / (denominator + 1e-9) # Add epsilon to denominator
+        if stage_prefix is not None:
+            _record_debug_stat(debug_state, f"{stage_prefix}/denominator_min_abs", float(denominator.detach().abs().min().cpu().item()))
+            _record_debug_stat(debug_state, f"{stage_prefix}/x_abs_max", _tensor_abs_max(x))
+            _record_debug_stat(debug_state, f"{stage_prefix}/y_abs_max", _tensor_abs_max(y))
+        result = numerator / (denominator + 1e-9) # Add epsilon to denominator
+        if stage_prefix is not None:
+            _record_debug_stat(debug_state, f"{stage_prefix}/result_abs_max", _tensor_abs_max(result))
+            _record_debug_stat(debug_state, f"{stage_prefix}/result_nonfinite_count", _tensor_nonfinite_count(result))
+        return result
 
 def scaling_factor(x, c, n_head=None):
     """Compute scaling factor for hyperbolic space with curvature c"""
@@ -110,7 +175,7 @@ def scaling_factor(x, c, n_head=None):
         # Result can be (B,T,1) or (B,T,n_embd) if c_clamped was (n_embd,)
         return 2 / (1 + c_clamped * x_norm_sq + 1e-9)
 
-def expmap(x, v, c, n_head=None):
+def expmap(x, v, c, n_head=None, debug_state=None, stage_prefix=None):
     """Exponential map from tangent space to hyperbolic space with curvature c"""
     c_clamped = clamp_curvature(c)
     B_dim = x.shape[0] if isinstance(x, torch.Tensor) and x.ndim > 0 else 0
@@ -139,16 +204,26 @@ def expmap(x, v, c, n_head=None):
         v_norm_r = torch.sqrt(v_norm_sq_r + 1e-9) # (B,T,n_head,1), epsilon for stability
 
         # c_br_for_exp is the correctly shaped (1,1,n_head,1) or (B,1,n_head,1) curvature
-        tanh_arg_val = torch.abs(c_br_for_exp * sf_x_r * v_norm_sq_r / 2) 
+        tanh_arg_val = torch.abs(c_br_for_exp * sf_x_r * v_norm_sq_r / 2)
 
         sqrt_c_br = torch.sqrt(torch.abs(c_br_for_exp) + 1e-9) # abs for safety, though c should be >0
         sqrt_tanh_arg_val = torch.sqrt(tanh_arg_val + 1e-9) # Epsilon for stability
         
         second_term_coeff = (1 / (sqrt_c_br + 1e-9)) * torch.tanh(sqrt_tanh_arg_val) # Epsilon for sqrt_c_br division
         second_term_r = second_term_coeff * (v_r / (v_norm_r + 1e-9)) # (B, T, n_head, hs)
-        
+        if stage_prefix is not None:
+            _record_debug_stat(debug_state, f"{stage_prefix}/tanh_arg_abs_max", _tensor_abs_max(tanh_arg_val))
+            _record_debug_stat(debug_state, f"{stage_prefix}/second_term_abs_max", _tensor_abs_max(second_term_r))
+
         # Pass original c_clamped and n_head to mobius_addition
-        return mobius_addition(x, second_term_r.reshape(B, T, C_embed), c_clamped, n_head=n_head)
+        return mobius_addition(
+            x,
+            second_term_r.reshape(B, T, C_embed),
+            c_clamped,
+            n_head=n_head,
+            debug_state=debug_state,
+            stage_prefix=f"{stage_prefix}/mobius" if stage_prefix else None,
+        )
     else:
         # Original non-per-head logic (handles scalar c, (B,1) c, or (n_embd,) c)
         sf_x = scaling_factor(x, c_clamped, n_head=None) # (B,T,1) or (B,T,n_embd)
@@ -165,9 +240,19 @@ def expmap(x, v, c, n_head=None):
         term_coeff = (1 / (c_clamped_sqrt + 1e-9)) * torch.tanh(tanh_input_sqrt)
         second_term_direction = v / (v_norm + 1e-9)
         second_term = term_coeff * second_term_direction
-        return mobius_addition(x, second_term, c_clamped, n_head=None)
+        if stage_prefix is not None:
+            _record_debug_stat(debug_state, f"{stage_prefix}/tanh_arg_abs_max", _tensor_abs_max(tanh_arg_base))
+            _record_debug_stat(debug_state, f"{stage_prefix}/second_term_abs_max", _tensor_abs_max(second_term))
+        return mobius_addition(
+            x,
+            second_term,
+            c_clamped,
+            n_head=None,
+            debug_state=debug_state,
+            stage_prefix=f"{stage_prefix}/mobius" if stage_prefix else None,
+        )
 
-def logmap(x, u, c, n_head=None):
+def logmap(x, u, c, n_head=None, debug_state=None, stage_prefix=None):
     """Logarithmic map from hyperbolic space to tangent space with curvature c"""
     c_clamped = clamp_curvature(c)
     B_dim = x.shape[0] if isinstance(x, torch.Tensor) and x.ndim > 0 else 0
@@ -188,7 +273,14 @@ def logmap(x, u, c, n_head=None):
         hs = C_embed // n_head
 
         # Pass original c_clamped and n_head to mobius_addition and scaling_factor
-        mob_add_result = mobius_addition(-x, u, c_clamped, n_head=n_head) # (B,T,C_embed)
+        mob_add_result = mobius_addition(
+            -x,
+            u,
+            c_clamped,
+            n_head=n_head,
+            debug_state=debug_state,
+            stage_prefix=f"{stage_prefix}/mobius" if stage_prefix else None,
+        ) # (B,T,C_embed)
         mob_add_result_r = mob_add_result.view(B, T, n_head, hs) # (B,T,n_head,hs)
 
         sf_x_r = scaling_factor(x, c_clamped, n_head=n_head) # (B,T,n_head,1)
@@ -205,10 +297,21 @@ def logmap(x, u, c, n_head=None):
         arctanh_arg_clamped_r = torch.clamp(arctanh_arg_r, min=-0.9999, max=0.9999) # clamp before arctanh
         
         result_r = constant_factor * torch.arctanh(arctanh_arg_clamped_r) * direction_factor_r
+        if stage_prefix is not None:
+            _record_debug_stat(debug_state, f"{stage_prefix}/arctanh_arg_abs_max", _tensor_abs_max(arctanh_arg_r))
+            _record_debug_stat(debug_state, f"{stage_prefix}/result_abs_max", _tensor_abs_max(result_r))
+            _record_debug_stat(debug_state, f"{stage_prefix}/result_nonfinite_count", _tensor_nonfinite_count(result_r))
         return result_r.reshape(B, T, C_embed)
     else:
         # Original non-per-head logic (handles scalar c, (B,1) c, or (n_embd,) c)
-        mob_addition_val = mobius_addition(-x, u, c_clamped, n_head=None) # (B,T,n_embd)
+        mob_addition_val = mobius_addition(
+            -x,
+            u,
+            c_clamped,
+            n_head=None,
+            debug_state=debug_state,
+            stage_prefix=f"{stage_prefix}/mobius" if stage_prefix else None,
+        ) # (B,T,n_embd)
         sf_x = scaling_factor(x, c_clamped, n_head=None) # (B,T,1) or (B,T,n_embd)
 
         addition_norm_sq = torch.sum(mob_addition_val * mob_addition_val, dim=-1, keepdim=True) # (B,T,1)
@@ -226,7 +329,12 @@ def logmap(x, u, c, n_head=None):
         arctanh_arg = torch.sqrt(torch.abs(arctanh_arg_base) + 1e-9) # abs and epsilon
         
         arctanh_arg_clamped = torch.clamp(arctanh_arg, min=-0.9999, max=0.9999)
-        return constant_factor * torch.arctanh(arctanh_arg_clamped) * direction_factor
+        result = constant_factor * torch.arctanh(arctanh_arg_clamped) * direction_factor
+        if stage_prefix is not None:
+            _record_debug_stat(debug_state, f"{stage_prefix}/arctanh_arg_abs_max", _tensor_abs_max(arctanh_arg))
+            _record_debug_stat(debug_state, f"{stage_prefix}/result_abs_max", _tensor_abs_max(result))
+            _record_debug_stat(debug_state, f"{stage_prefix}/result_nonfinite_count", _tensor_nonfinite_count(result))
+        return result
 
 def calculate_reference_point(x, per_head_curvature=False):
     """Calculate reference point for hyperbolic operations"""
@@ -373,9 +481,14 @@ class Block(nn.Module):
 
     def forward(self, x):
         # Input x is assumed to be in hyperbolic space (mapped in GPT.forward or previous block)
-        
+
         n_head_for_ops = None
         current_c_for_ops = None
+        debug_state = {} if getattr(self.config, 'hyperbolic_debug', False) else None
+        residual_mode = getattr(self.config, 'hyperbolic_residual_mode', 'mobius')
+        transport_mode = getattr(self.config, 'hyperbolic_transport_mode', 'logexp')
+        project_points = bool(getattr(self.config, 'project_hyperbolic_points', False))
+        projection_eps = float(getattr(self.config, 'hyperbolic_projection_eps', 1e-3))
 
         if self.dynamic_curvature:
             # predicted_c will be (B, n_head) if self.is_c_per_head (i.e. config.per_head_curvature) is true,
@@ -409,21 +522,123 @@ class Block(nn.Module):
                  n_head_for_ops = None
 
         reference_point = calculate_reference_point(x)
+        if debug_state is not None:
+            _record_debug_stat(debug_state, 'input_abs_max', _tensor_abs_max(x))
+            _record_debug_stat(debug_state, 'input_nonfinite_count', _tensor_nonfinite_count(x))
+            _record_debug_stat(debug_state, 'reference_abs_max', _tensor_abs_max(reference_point))
 
-        # Map to tangent space at reference point before attention
-        x_tan = logmap(reference_point, x, current_c_for_ops, n_head=n_head_for_ops)
-        attn_update_tan = self.attn(self.ln_1(x_tan))
-        # Map attention update back to hyperbolic space relative to reference point
-        attn_update_hyp = expmap(reference_point, attn_update_tan, current_c_for_ops, n_head=n_head_for_ops)
-        # Add residual using Mobius addition
-        x = mobius_addition(x, attn_update_hyp, current_c_for_ops, n_head=n_head_for_ops)
+        if transport_mode == 'identity':
+            attn_input = x
+        else:
+            # Map to tangent space at reference point before attention
+            x_tan = logmap(
+                reference_point,
+                x,
+                current_c_for_ops,
+                n_head=n_head_for_ops,
+                debug_state=debug_state,
+                stage_prefix='attn/logmap',
+            )
+            if debug_state is not None:
+                _record_debug_stat(debug_state, 'attn/x_tan_abs_max', _tensor_abs_max(x_tan))
+                _record_debug_stat(debug_state, 'attn/x_tan_nonfinite_count', _tensor_nonfinite_count(x_tan))
+            attn_input = x_tan
 
-        x_tan_mlp = logmap(reference_point, x, current_c_for_ops, n_head=n_head_for_ops)
-        mlp_update_tan = self.mlp(self.ln_2(x_tan_mlp))
-        # Map MLP update back to hyperbolic space relative to its reference point
-        mlp_update_hyp = expmap(reference_point, mlp_update_tan, current_c_for_ops, n_head=n_head_for_ops)
-        # Add residual using Mobius addition
-        x = mobius_addition(x, mlp_update_hyp, current_c_for_ops, n_head=n_head_for_ops)
+        attn_update_tan = self.attn(self.ln_1(attn_input))
+        if debug_state is not None:
+            _record_debug_stat(debug_state, 'attn/update_tan_abs_max', _tensor_abs_max(attn_update_tan))
+            _record_debug_stat(debug_state, 'attn/update_tan_nonfinite_count', _tensor_nonfinite_count(attn_update_tan))
+
+        if transport_mode == 'identity':
+            attn_update_hyp = attn_update_tan
+        else:
+            # Map attention update back to hyperbolic space relative to reference point
+            attn_update_hyp = expmap(
+                reference_point,
+                attn_update_tan,
+                current_c_for_ops,
+                n_head=n_head_for_ops,
+                debug_state=debug_state,
+                stage_prefix='attn/expmap',
+            )
+        if project_points:
+            attn_update_hyp = project_to_ball(attn_update_hyp, current_c_for_ops, n_head=n_head_for_ops, eps=projection_eps)
+        if debug_state is not None:
+            _record_debug_stat(debug_state, 'attn/update_hyp_abs_max', _tensor_abs_max(attn_update_hyp))
+            _record_debug_stat(debug_state, 'attn/update_hyp_nonfinite_count', _tensor_nonfinite_count(attn_update_hyp))
+        # Add residual using either Mobius or Euclidean addition for ablations.
+        if residual_mode == 'euclidean':
+            x = x + attn_update_hyp
+        else:
+            x = mobius_addition(
+                x,
+                attn_update_hyp,
+                current_c_for_ops,
+                n_head=n_head_for_ops,
+                debug_state=debug_state,
+                stage_prefix='attn/residual',
+            )
+        if project_points:
+            x = project_to_ball(x, current_c_for_ops, n_head=n_head_for_ops, eps=projection_eps)
+        if debug_state is not None:
+            _record_debug_stat(debug_state, 'attn/output_abs_max', _tensor_abs_max(x))
+            _record_debug_stat(debug_state, 'attn/output_nonfinite_count', _tensor_nonfinite_count(x))
+
+        if transport_mode == 'identity':
+            mlp_input = x
+        else:
+            x_tan_mlp = logmap(
+                reference_point,
+                x,
+                current_c_for_ops,
+                n_head=n_head_for_ops,
+                debug_state=debug_state,
+                stage_prefix='mlp/logmap',
+            )
+            if debug_state is not None:
+                _record_debug_stat(debug_state, 'mlp/x_tan_abs_max', _tensor_abs_max(x_tan_mlp))
+                _record_debug_stat(debug_state, 'mlp/x_tan_nonfinite_count', _tensor_nonfinite_count(x_tan_mlp))
+            mlp_input = x_tan_mlp
+        mlp_update_tan = self.mlp(self.ln_2(mlp_input))
+        if debug_state is not None:
+            _record_debug_stat(debug_state, 'mlp/update_tan_abs_max', _tensor_abs_max(mlp_update_tan))
+            _record_debug_stat(debug_state, 'mlp/update_tan_nonfinite_count', _tensor_nonfinite_count(mlp_update_tan))
+        if transport_mode == 'identity':
+            mlp_update_hyp = mlp_update_tan
+        else:
+            # Map MLP update back to hyperbolic space relative to its reference point
+            mlp_update_hyp = expmap(
+                reference_point,
+                mlp_update_tan,
+                current_c_for_ops,
+                n_head=n_head_for_ops,
+                debug_state=debug_state,
+                stage_prefix='mlp/expmap',
+            )
+        if project_points:
+            mlp_update_hyp = project_to_ball(mlp_update_hyp, current_c_for_ops, n_head=n_head_for_ops, eps=projection_eps)
+        if debug_state is not None:
+            _record_debug_stat(debug_state, 'mlp/update_hyp_abs_max', _tensor_abs_max(mlp_update_hyp))
+            _record_debug_stat(debug_state, 'mlp/update_hyp_nonfinite_count', _tensor_nonfinite_count(mlp_update_hyp))
+        if residual_mode == 'euclidean':
+            x = x + mlp_update_hyp
+        else:
+            x = mobius_addition(
+                x,
+                mlp_update_hyp,
+                current_c_for_ops,
+                n_head=n_head_for_ops,
+                debug_state=debug_state,
+                stage_prefix='mlp/residual',
+            )
+        if project_points:
+            x = project_to_ball(x, current_c_for_ops, n_head=n_head_for_ops, eps=projection_eps)
+        if debug_state is not None:
+            _record_debug_stat(debug_state, 'mlp/output_abs_max', _tensor_abs_max(x))
+            _record_debug_stat(debug_state, 'mlp/output_nonfinite_count', _tensor_nonfinite_count(x))
+            self.last_hyperbolic_debug = debug_state
+        elif hasattr(self, 'last_hyperbolic_debug'):
+            delattr(self, 'last_hyperbolic_debug')
 
         return x
 
@@ -442,6 +657,11 @@ class GPTConfig:
     per_head_curvature: bool = True # whether to use a different curvature for each head
     use_embedding_curvature: bool = True #whether to use a curvature element also for the embedding layer. 
     dynamic_curvature: bool = True #whether to predict curvature based on input for the model. 
+    hyperbolic_debug: bool = False # whether to store lightweight hyperbolic internal diagnostics on each block
+    hyperbolic_residual_mode: str = 'mobius' # 'mobius' or 'euclidean' for residual-update ablations
+    hyperbolic_transport_mode: str = 'logexp' # 'logexp' or 'identity' to bypass log/exp transport
+    project_hyperbolic_points: bool = False # whether to project updates and states back into the implied ball
+    hyperbolic_projection_eps: float = 1e-3
     def __post_init__(self):
         # Initialize curvature_initialization if it's empty
         if not self.curvature_initialization:

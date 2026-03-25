@@ -1,0 +1,57 @@
+{
+  "baseline_report": "analysis_out/fineweb_isotropy/baseline_isotropy.json",
+  "hyperbolic_report": "analysis_out/fineweb_isotropy/hyperbolic_isotropy.json",
+  "common_layers": [
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5"
+  ],
+  "layer_deltas": {
+    "0": {
+      "normalized_spectral_entropy_delta": 0.07978230714797974,
+      "effective_rank_delta": 27.797897338867188,
+      "participation_ratio_delta": 5.122210502624512,
+      "top1_share_delta": -0.03139306604862213,
+      "condition_number_delta": -4646.670227050781
+    },
+    "1": {
+      "normalized_spectral_entropy_delta": 0.14175909757614136,
+      "effective_rank_delta": 42.524879455566406,
+      "participation_ratio_delta": 5.584670066833496,
+      "top1_share_delta": -0.004188954830169678,
+      "condition_number_delta": -8191.919128417969
+    },
+    "2": {
+      "normalized_spectral_entropy_delta": 0.16660600900650024,
+      "effective_rank_delta": 46.41149711608887,
+      "participation_ratio_delta": 7.9824066162109375,
+      "top1_share_delta": -0.008541807532310486,
+      "condition_number_delta": -11608.517578125
+    },
+    "3": {
+      "normalized_spectral_entropy_delta": 0.05498284101486206,
+      "effective_rank_delta": 8.683609008789062,
+      "participation_ratio_delta": 0.7514238357543945,
+      "top1_share_delta": 0.0002455413341522217,
+      "condition_number_delta": -27183.44873046875
+    },
+    "4": {
+      "normalized_spectral_entropy_delta": 0.0412825345993042,
+      "effective_rank_delta": 5.464202880859375,
+      "participation_ratio_delta": -0.5408563613891602,
+      "top1_share_delta": 0.019902557134628296,
+      "condition_number_delta": -39949.0791015625
+    },
+    "5": {
+      "normalized_spectral_entropy_delta": 0.0469510555267334,
+      "effective_rank_delta": 5.68958854675293,
+      "participation_ratio_delta": 0.47302913665771484,
+      "top1_share_delta": -0.004091903567314148,
+      "condition_number_delta": -61950.3916015625
+    }
+  },
+  "last_layer": "5"
+}

@@ -17,3 +17,11 @@ out_baseline_large/
 out_hyperbolic/
 out_hyperbolic_large/
 Hyperbolic-out-shakespeare-char/
+# Local Claude agent config
+.claude/
+# Large checkpoint archives (individual .pt already excluded above)
+*.tar.gz
+# Runtime logs
+logs/
+# Temporary smoke-test runs
+runs/tmp_*/

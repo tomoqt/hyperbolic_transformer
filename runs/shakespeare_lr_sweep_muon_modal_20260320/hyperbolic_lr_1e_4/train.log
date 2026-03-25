@@ -1,0 +1,132 @@
+Overriding config with config/train_shakespeare_char.py:
+# train a miniature character-level shakespeare model
+# good for debugging and playing on macbooks and such
+
+out_dir = 'Hyperbolic-out-shakespeare-char'
+eval_interval = 10 # keep frequent because we'll overfit
+eval_iters = 20
+log_interval = 1 # don't print too too often
+
+# we expect to overfit on this small dataset, so only save when val improves
+always_save_checkpoint = False
+
+wandb_log = True # override via command line if you like
+wandb_project = 'hyperbolic-shakespeare-char'
+wandb_run_name = 'mini-gpt'
+
+dataset = 'shakespeare_char'
+gradient_accumulation_steps = 1
+batch_size = 12
+block_size = 256 # context of up to 256 previous characters
+curvature = 1.0
+# baby GPT model :)
+n_layer = 6
+n_head = 6
+n_embd = 384
+dropout = 0.0
+use_muon = False
+muon_lr = 1e-2
+muon_momentum = 0.95
+muon_nesterov = True
+muon_ns_steps = 5
+learning_rate = 1e-3 # with baby networks can afford to go a bit higher
+max_iters = 5000
+lr_decay_iters = 5000 # make equal to max_iters usually
+min_lr = 1e-5 # learning_rate / 10 usually
+beta2 = 0.99 # make a bit bigger because number of tokens per iter is small
+
+warmup_iters = 100 # not super necessary potentially
+map_back_after_attention = False
+use_embedding_curvature = False
+# on macbook also add
+# device = 'cpu'  # run on cpu only
+# compile = False # do not torch compile the model
+
+Overriding: use_baseline_model = False
+Overriding: use_muon = True
+Overriding: device = cuda
+Overriding: compile = False
+Overriding: wandb_log = False
+Overriding: learning_rate = 0.0001
+Overriding: muon_lr = 0.0003
+Overriding: muon_momentum = 0.95
+Overriding: muon_nesterov = True
+Overriding: muon_ns_steps = 5
+Overriding: max_iters = 1500
+Overriding: lr_decay_iters = 1500
+Overriding: eval_interval = 100
+Overriding: log_interval = 50
+Overriding: always_save_checkpoint = True
+Overriding: out_dir = runs/shakespeare_lr_sweep_muon_modal_20260320/hyperbolic_lr_1e_4
+Using standard model from model.py
+tokens per iteration will be: 3,072
+Checkpoint directory: runs/shakespeare_lr_sweep_muon_modal_20260320/hyperbolic_lr_1e_4
+found vocab_size = 65 (inside data/shakespeare_char/meta.pkl)
+Initializing a new model from scratch
+Using vocab_size = 65 for new model initialization.
+number of parameters: 10.66M
+num parameters for AdamW: 27, with 128,328 parameters
+num parameters for Muon: 30, with 10,630,656 parameters
+using fused AdamW: True
+step 0: train loss 4.6517, val loss 4.6416
+iter 0: loss 4.6756, time 1902.17ms, mfu -100.00%
+iter 50: loss 4.3999, time 92.14ms, mfu 0.76%
+step 100: train loss 3.7542, val loss 3.7580
+saving hyperbolic model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/hyperbolic_lr_1e_4
+iter 100: loss 3.7107, time 1067.66ms, mfu 0.69%
+iter 150: loss 3.2912, time 91.74ms, mfu 0.70%
+step 200: train loss 3.1289, val loss 3.1362
+saving hyperbolic model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/hyperbolic_lr_1e_4
+iter 200: loss 3.1359, time 1118.20ms, mfu 0.63%
+iter 250: loss 2.9947, time 91.30ms, mfu 0.65%
+step 300: train loss 2.8849, val loss 2.8915
+saving hyperbolic model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/hyperbolic_lr_1e_4
+iter 300: loss 2.8958, time 1151.03ms, mfu 0.59%
+iter 350: loss 2.7636, time 90.55ms, mfu 0.61%
+step 400: train loss 2.6708, val loss 2.6727
+saving hyperbolic model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/hyperbolic_lr_1e_4
+iter 400: loss 2.6531, time 1146.70ms, mfu 0.55%
+iter 450: loss 2.6090, time 91.96ms, mfu 0.57%
+step 500: train loss 2.5236, val loss 2.5350
+saving hyperbolic model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/hyperbolic_lr_1e_4
+iter 500: loss 2.5491, time 1148.44ms, mfu 0.52%
+iter 550: loss 2.4591, time 95.46ms, mfu 0.54%
+step 600: train loss 2.4109, val loss 2.4236
+saving hyperbolic model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/hyperbolic_lr_1e_4
+iter 600: loss 2.4312, time 1119.82ms, mfu 0.49%
+iter 650: loss 2.3795, time 115.79ms, mfu 0.51%
+step 700: train loss 2.3376, val loss 2.3500
+saving hyperbolic model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/hyperbolic_lr_1e_4
+iter 700: loss 2.3638, time 1183.82ms, mfu 0.46%
+iter 750: loss 2.3256, time 96.13ms, mfu 0.49%
+step 800: train loss 2.2832, val loss 2.2927
+saving hyperbolic model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/hyperbolic_lr_1e_4
+iter 800: loss 2.2633, time 1210.13ms, mfu 0.44%
+iter 850: loss 2.2611, time 99.04ms, mfu 0.47%
+step 900: train loss 2.2444, val loss 2.2726
+saving hyperbolic model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/hyperbolic_lr_1e_4
+iter 900: loss 2.2919, time 1303.79ms, mfu 0.43%
+iter 950: loss 2.2670, time 94.76ms, mfu 0.46%
+step 1000: train loss 2.2157, val loss 2.2480
+saving hyperbolic model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/hyperbolic_lr_1e_4
+iter 1000: loss 2.2071, time 1143.76ms, mfu 0.42%
+iter 1050: loss nan, time 95.76ms, mfu 0.45%
+step 1100: train loss nan, val loss nan
+saving hyperbolic model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/hyperbolic_lr_1e_4
+iter 1100: loss nan, time 1310.01ms, mfu 0.41%
+iter 1150: loss nan, time 95.49ms, mfu 0.44%
+step 1200: train loss nan, val loss nan
+saving hyperbolic model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/hyperbolic_lr_1e_4
+iter 1200: loss nan, time 1185.33ms, mfu 0.41%
+iter 1250: loss nan, time 93.16ms, mfu 0.44%
+step 1300: train loss nan, val loss nan
+saving hyperbolic model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/hyperbolic_lr_1e_4
+iter 1300: loss nan, time 1142.52ms, mfu 0.40%
+iter 1350: loss nan, time 91.99ms, mfu 0.44%
+step 1400: train loss nan, val loss nan
+saving hyperbolic model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/hyperbolic_lr_1e_4
+iter 1400: loss nan, time 1101.68ms, mfu 0.40%
+iter 1450: loss nan, time 102.99ms, mfu 0.43%
+step 1500: train loss nan, val loss nan
+saving hyperbolic model checkpoint to runs/shakespeare_lr_sweep_muon_modal_20260320/hyperbolic_lr_1e_4
+iter 1500: loss nan, time 1107.32ms, mfu 0.39%

@@ -1,0 +1,8 @@
+{
+  "model_kind": "baseline",
+  "learning_rate": "5e-4",
+  "use_muon": true,
+  "optimizer": "muon",
+  "muon_lr": 0.0015,
+  "muon_lr_ratio": 3.0
+}

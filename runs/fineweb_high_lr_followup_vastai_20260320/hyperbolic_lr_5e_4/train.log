@@ -1,0 +1,162 @@
+Overriding config with config/train_fineweb_small.py:
+# config for training GPT-2 (124M) down to very nice loss of ~2.85 on 1 node of 8X A100 40GB
+# launch as the following (e.g. in a screen session) and wait ~5 days:
+# $ torchrun --standalone --nproc_per_node=8 train.py config/train_gpt2.py
+
+wandb_log = True
+wandb_project = 'fineweb_mixed_curvature'
+wandb_run_name='small_fineweb'
+
+# these make the total batch size be ~0.5M
+# 12 batch size * 1024 block size * 5 gradaccum * 8 GPUs = 491,520
+batch_size = 1
+block_size = 512
+gradient_accumulation_steps = 8
+dataset = 'fineweb'
+
+# this makes total number of tokens be 300B
+max_iters = 60000
+lr_decay_iters = 60000
+
+# eval stuff
+eval_interval = 100
+eval_iters = 20
+log_interval = 10
+
+curvature = 1.0
+
+n_layer = 6
+n_head = 6
+n_embd = 384
+dropout = 0.0
+use_muon = False
+muon_lr = 1e-2
+muon_momentum = 0.95
+muon_nesterov = True
+muon_ns_steps = 5
+learning_rate = 1e-4
+max_iters = 60000
+lr_decay_iters = 60000
+min_lr = 1e-5 
+beta2 = 0.99 
+
+warmup_iters = 100 # not super necessary potentially
+use_embedding_curvature = False
+use_baseline_model = False
+dynamic_curvature = True
+per_head_curvature = True
+Overriding: use_baseline_model = False
+Overriding: device = cuda
+Overriding: compile = False
+Overriding: wandb_log = False
+Overriding: learning_rate = 0.0005
+Overriding: max_iters = 1500
+Overriding: lr_decay_iters = 1500
+Overriding: eval_interval = 50
+Overriding: log_interval = 25
+Overriding: always_save_checkpoint = True
+Overriding: out_dir = runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+Using standard model from model.py
+tokens per iteration will be: 4,096
+Checkpoint directory: runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+found vocab_size = 50257 (inside data/fineweb/meta.pkl)
+Initializing a new model from scratch
+Using vocab_size = 50257 for new model initialization.
+number of parameters: 29.93M
+num decayed parameter tensors: 32, with 30,125,952 parameters
+num non-decayed parameter tensors: 25, with 5,064 parameters
+using fused AdamW: True
+step 0: train loss 10.8573, val loss 10.8390
+iter 0: loss 10.8697, time 2545.47ms, mfu -100.00%
+iter 25: loss 10.0337, time 706.42ms, mfu 0.36%
+step 50: train loss 8.4831, val loss 8.5235
+saving hyperbolic model checkpoint to runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+iter 50: loss 8.5453, time 2016.66ms, mfu 0.34%
+iter 75: loss 7.8890, time 741.96ms, mfu 0.34%
+step 100: train loss 7.3733, val loss 7.3723
+saving hyperbolic model checkpoint to runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+iter 100: loss 6.2239, time 2239.85ms, mfu 0.31%
+iter 125: loss 6.4641, time 719.81ms, mfu 0.32%
+step 150: train loss 7.1185, val loss 6.9761
+saving hyperbolic model checkpoint to runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+iter 150: loss 7.0770, time 2252.16ms, mfu 0.30%
+iter 175: loss 6.9084, time 717.30ms, mfu 0.30%
+step 200: train loss 6.8168, val loss 6.8582
+saving hyperbolic model checkpoint to runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+iter 200: loss 6.8821, time 2149.71ms, mfu 0.29%
+iter 225: loss 7.1390, time 763.75ms, mfu 0.29%
+step 250: train loss 6.7251, val loss 6.7021
+saving hyperbolic model checkpoint to runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+iter 250: loss 6.3249, time 2179.55ms, mfu 0.27%
+iter 275: loss 6.8026, time 729.70ms, mfu 0.28%
+step 300: train loss 6.4884, val loss 6.7182
+saving hyperbolic model checkpoint to runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+iter 300: loss 5.7423, time 2219.20ms, mfu 0.26%
+iter 325: loss 6.9916, time 723.86ms, mfu 0.27%
+step 350: train loss 6.5559, val loss 6.4391
+saving hyperbolic model checkpoint to runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+iter 350: loss 7.2977, time 2135.64ms, mfu 0.26%
+iter 375: loss 5.7333, time 678.94ms, mfu 0.27%
+step 400: train loss 6.6860, val loss 6.3384
+saving hyperbolic model checkpoint to runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+iter 400: loss 6.6615, time 2220.06ms, mfu 0.25%
+iter 425: loss 5.9420, time 682.78ms, mfu 0.27%
+step 450: train loss 6.3594, val loss 6.4383
+saving hyperbolic model checkpoint to runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+iter 450: loss 6.6640, time 2119.76ms, mfu 0.25%
+iter 475: loss 5.8408, time 727.56ms, mfu 0.26%
+step 500: train loss 6.3875, val loss 6.4732
+saving hyperbolic model checkpoint to runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+iter 500: loss 5.6430, time 2234.88ms, mfu 0.25%
+iter 525: loss 6.0074, time 715.94ms, mfu 0.26%
+step 550: train loss 6.2842, val loss 6.2235
+saving hyperbolic model checkpoint to runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+iter 550: loss 6.4061, time 2172.29ms, mfu 0.24%
+iter 575: loss 6.0982, time 719.07ms, mfu 0.25%
+step 600: train loss 6.2784, val loss 6.0476
+saving hyperbolic model checkpoint to runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+iter 600: loss 6.1927, time 2177.63ms, mfu 0.24%
+iter 625: loss 6.7057, time 684.07ms, mfu 0.25%
+step 650: train loss 6.1696, val loss 6.2604
+saving hyperbolic model checkpoint to runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+iter 650: loss 6.5086, time 2193.92ms, mfu 0.24%
+iter 675: loss 5.8102, time 680.90ms, mfu 0.25%
+step 700: train loss 5.9866, val loss 6.2677
+saving hyperbolic model checkpoint to runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+iter 700: loss 7.2406, time 2149.63ms, mfu 0.24%
+iter 725: loss 6.0541, time 730.47ms, mfu 0.25%
+step 750: train loss 6.1951, val loss 6.2105
+saving hyperbolic model checkpoint to runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+iter 750: loss 5.8108, time 2191.43ms, mfu 0.24%
+iter 775: loss 5.2465, time 681.21ms, mfu 0.25%
+step 800: train loss 5.9590, val loss 6.1159
+saving hyperbolic model checkpoint to runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+iter 800: loss 5.8543, time 2204.77ms, mfu 0.24%
+iter 825: loss 5.7830, time 679.36ms, mfu 0.25%
+step 850: train loss 5.9765, val loss 6.2045
+saving hyperbolic model checkpoint to runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+iter 850: loss 5.8397, time 2240.68ms, mfu 0.24%
+iter 875: loss 5.9190, time 706.76ms, mfu 0.25%
+step 900: train loss 6.1762, val loss 5.9188
+saving hyperbolic model checkpoint to runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+iter 900: loss 6.0900, time 2006.51ms, mfu 0.24%
+iter 925: loss 6.2002, time 682.41ms, mfu 0.25%
+step 950: train loss 5.7581, val loss 6.0432
+saving hyperbolic model checkpoint to runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+iter 950: loss 5.8963, time 2218.46ms, mfu 0.24%
+iter 975: loss 6.0727, time 760.14ms, mfu 0.25%
+step 1000: train loss 5.9794, val loss 5.9578
+saving hyperbolic model checkpoint to runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+iter 1000: loss 6.0080, time 2112.11ms, mfu 0.23%
+iter 1025: loss 7.4359, time 729.31ms, mfu 0.25%
+step 1050: train loss 6.1212, val loss 5.8918
+saving hyperbolic model checkpoint to runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+iter 1050: loss 4.9394, time 2215.24ms, mfu 0.23%
+iter 1075: loss 6.0459, time 750.79ms, mfu 0.24%
+step 1100: train loss 5.9808, val loss 5.9768
+saving hyperbolic model checkpoint to runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+iter 1100: loss 5.6860, time 2244.98ms, mfu 0.23%
+iter 1125: loss 5.9778, time 737.51ms, mfu 0.24%
+step 1150: train loss 5.8265, val loss 6.1174
+saving hyperbolic model checkpoint to runs/fineweb_high_lr_followup/hyperbolic_lr_5e_4
+iter 1150: loss 5.5557, time 2225.01ms, mfu 0.23%

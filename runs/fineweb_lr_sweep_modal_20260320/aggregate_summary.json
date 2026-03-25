@@ -1,0 +1,172 @@
+{
+  "runs": [
+    {
+      "model_kind": "baseline",
+      "learning_rate": "1e-3",
+      "run_dir": "runs/fineweb_lr_sweep/baseline_lr_1e_3",
+      "runtime_seconds": null,
+      "success": true,
+      "num_evals": 16,
+      "best_eval": {
+        "step": 1200,
+        "train_loss": 6.2514,
+        "val_loss": 5.8773
+      },
+      "final_eval": {
+        "step": 1500,
+        "train_loss": 5.9945,
+        "val_loss": 6.0022
+      },
+      "checkpoint_path": "runs/fineweb_lr_sweep/baseline_lr_1e_3/ckpt.pt",
+      "checkpoint_iter_num": 1500,
+      "checkpoint_best_val_loss": 6.002166271209717
+    },
+    {
+      "model_kind": "baseline",
+      "learning_rate": "1e-4",
+      "run_dir": "runs/fineweb_lr_sweep/baseline_lr_1e_4",
+      "runtime_seconds": null,
+      "success": true,
+      "num_evals": 16,
+      "best_eval": {
+        "step": 1200,
+        "train_loss": 6.7589,
+        "val_loss": 6.3885
+      },
+      "final_eval": {
+        "step": 1500,
+        "train_loss": 6.5927,
+        "val_loss": 6.5014
+      },
+      "checkpoint_path": "runs/fineweb_lr_sweep/baseline_lr_1e_4/ckpt.pt",
+      "checkpoint_iter_num": 1500,
+      "checkpoint_best_val_loss": 6.501355171203613
+    },
+    {
+      "model_kind": "baseline",
+      "learning_rate": "2e-4",
+      "run_dir": "runs/fineweb_lr_sweep/baseline_lr_2e_4",
+      "runtime_seconds": null,
+      "success": true,
+      "num_evals": 16,
+      "best_eval": {
+        "step": 1200,
+        "train_loss": 6.5827,
+        "val_loss": 6.202
+      },
+      "final_eval": {
+        "step": 1500,
+        "train_loss": 6.3843,
+        "val_loss": 6.321
+      },
+      "checkpoint_path": "runs/fineweb_lr_sweep/baseline_lr_2e_4/ckpt.pt",
+      "checkpoint_iter_num": 1500,
+      "checkpoint_best_val_loss": 6.321002960205078
+    },
+    {
+      "model_kind": "baseline",
+      "learning_rate": "5e-4",
+      "run_dir": "runs/fineweb_lr_sweep/baseline_lr_5e_4",
+      "runtime_seconds": null,
+      "success": true,
+      "num_evals": 16,
+      "best_eval": {
+        "step": 1200,
+        "train_loss": 6.372,
+        "val_loss": 5.9985
+      },
+      "final_eval": {
+        "step": 1500,
+        "train_loss": 6.1377,
+        "val_loss": 6.1213
+      },
+      "checkpoint_path": "runs/fineweb_lr_sweep/baseline_lr_5e_4/ckpt.pt",
+      "checkpoint_iter_num": 1500,
+      "checkpoint_best_val_loss": 6.121335029602051
+    },
+    {
+      "model_kind": "hyperbolic",
+      "learning_rate": "1e-3",
+      "run_dir": "runs/fineweb_lr_sweep/hyperbolic_lr_1e_3",
+      "runtime_seconds": null,
+      "success": true,
+      "num_evals": 16,
+      "best_eval": {
+        "step": 1300,
+        "train_loss": 6.0353,
+        "val_loss": 5.7433
+      },
+      "final_eval": {
+        "step": 1500,
+        "train_loss": 5.772,
+        "val_loss": 5.8466
+      },
+      "checkpoint_path": "runs/fineweb_lr_sweep/hyperbolic_lr_1e_3/ckpt.pt",
+      "checkpoint_iter_num": 1500,
+      "checkpoint_best_val_loss": 5.846567630767822
+    },
+    {
+      "model_kind": "hyperbolic",
+      "learning_rate": "1e-4",
+      "run_dir": "runs/fineweb_lr_sweep/hyperbolic_lr_1e_4",
+      "runtime_seconds": null,
+      "success": true,
+      "num_evals": 16,
+      "best_eval": {
+        "step": 1100,
+        "train_loss": 6.6716,
+        "val_loss": 6.4985
+      },
+      "final_eval": {
+        "step": 1500,
+        "train_loss": 6.5319,
+        "val_loss": 6.6524
+      },
+      "checkpoint_path": "runs/fineweb_lr_sweep/hyperbolic_lr_1e_4/ckpt.pt",
+      "checkpoint_iter_num": 1500,
+      "checkpoint_best_val_loss": 6.652417182922363
+    },
+    {
+      "model_kind": "hyperbolic",
+      "learning_rate": "2e-4",
+      "run_dir": "runs/fineweb_lr_sweep/hyperbolic_lr_2e_4",
+      "runtime_seconds": null,
+      "success": true,
+      "num_evals": 16,
+      "best_eval": {
+        "step": 1100,
+        "train_loss": 6.4047,
+        "val_loss": 6.212
+      },
+      "final_eval": {
+        "step": 1500,
+        "train_loss": 6.2487,
+        "val_loss": 6.3743
+      },
+      "checkpoint_path": "runs/fineweb_lr_sweep/hyperbolic_lr_2e_4/ckpt.pt",
+      "checkpoint_iter_num": 1500,
+      "checkpoint_best_val_loss": 6.374316692352295
+    },
+    {
+      "model_kind": "hyperbolic",
+      "learning_rate": "5e-4",
+      "run_dir": "runs/fineweb_lr_sweep/hyperbolic_lr_5e_4",
+      "runtime_seconds": null,
+      "success": true,
+      "num_evals": 16,
+      "best_eval": {
+        "step": 1100,
+        "train_loss": 6.0977,
+        "val_loss": 5.8759
+      },
+      "final_eval": {
+        "step": 1500,
+        "train_loss": 5.9178,
+        "val_loss": 6.0076
+      },
+      "checkpoint_path": "runs/fineweb_lr_sweep/hyperbolic_lr_5e_4/ckpt.pt",
+      "checkpoint_iter_num": 1500,
+      "checkpoint_best_val_loss": 6.0075860023498535
+    }
+  ]
+}

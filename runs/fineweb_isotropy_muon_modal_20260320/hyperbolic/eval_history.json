@@ -1,0 +1,1746 @@
+[
+  {
+    "event": "eval",
+    "iter": 0,
+    "train_loss": 10.857271194458008,
+    "val_loss": 10.838974952697754,
+    "lr": 0.0,
+    "mfu": null,
+    "curvature": {
+      "type": "dynamic",
+      "dynamic_curvature": true,
+      "per_head_curvature": true,
+      "curvature_mode": "random",
+      "blocks": [
+        {
+          "block_index": 0,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.493408203125,
+            0.50146484375,
+            0.5029296875,
+            0.50146484375,
+            0.49853515625,
+            0.496337890625
+          ],
+          "overall_batch_mean": 0.4990234375
+        },
+        {
+          "block_index": 1,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.497802734375,
+            0.50927734375,
+            0.496337890625,
+            0.496826171875,
+            0.497314453125,
+            0.51318359375
+          ],
+          "overall_batch_mean": 0.5017903645833334
+        },
+        {
+          "block_index": 2,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.52001953125,
+            0.49755859375,
+            0.49169921875,
+            0.51025390625,
+            0.489501953125,
+            0.51953125
+          ],
+          "overall_batch_mean": 0.5047607421875
+        },
+        {
+          "block_index": 3,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.509765625,
+            0.4794921875,
+            0.494384765625,
+            0.50537109375,
+            0.50146484375,
+            0.5107421875
+          ],
+          "overall_batch_mean": 0.5002034505208334
+        },
+        {
+          "block_index": 4,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.51171875,
+            0.46435546875,
+            0.50732421875,
+            0.478515625,
+            0.4970703125,
+            0.497314453125
+          ],
+          "overall_batch_mean": 0.4927164713541667
+        },
+        {
+          "block_index": 5,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.501953125,
+            0.488525390625,
+            0.51904296875,
+            0.5322265625,
+            0.47509765625,
+            0.52978515625
+          ],
+          "overall_batch_mean": 0.5077718098958334
+        }
+      ],
+      "global_avg_block_means": 0.5010443793402778,
+      "global_min_block_means": 0.4927164713541667,
+      "global_max_block_means": 0.5077718098958334
+    }
+  },
+  {
+    "event": "eval",
+    "iter": 100,
+    "train_loss": 10.23999309539795,
+    "val_loss": 10.300909042358398,
+    "lr": 0.0002,
+    "mfu": 0.3083496497622878,
+    "curvature": {
+      "type": "dynamic",
+      "dynamic_curvature": true,
+      "per_head_curvature": true,
+      "curvature_mode": "random",
+      "blocks": [
+        {
+          "block_index": 0,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.4912109375,
+            0.49853515625,
+            0.495849609375,
+            0.50537109375,
+            0.50439453125,
+            0.5
+          ],
+          "overall_batch_mean": 0.4992268880208333
+        },
+        {
+          "block_index": 1,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.498046875,
+            0.51318359375,
+            0.5087890625,
+            0.50439453125,
+            0.513671875,
+            0.51220703125
+          ],
+          "overall_batch_mean": 0.5083821614583334
+        },
+        {
+          "block_index": 2,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.509765625,
+            0.455078125,
+            0.47998046875,
+            0.52490234375,
+            0.50341796875,
+            0.51806640625
+          ],
+          "overall_batch_mean": 0.49853515625
+        },
+        {
+          "block_index": 3,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.54248046875,
+            0.5068359375,
+            0.487548828125,
+            0.484130859375,
+            0.5078125,
+            0.494873046875
+          ],
+          "overall_batch_mean": 0.5039469401041666
+        },
+        {
+          "block_index": 4,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.480224609375,
+            0.480712890625,
+            0.497314453125,
+            0.51171875,
+            0.495849609375,
+            0.48779296875
+          ],
+          "overall_batch_mean": 0.4922688802083333
+        },
+        {
+          "block_index": 5,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.484375,
+            0.470458984375,
+            0.498046875,
+            0.51806640625,
+            0.470458984375,
+            0.482177734375
+          ],
+          "overall_batch_mean": 0.4872639973958333
+        }
+      ],
+      "global_avg_block_means": 0.49827067057291674,
+      "global_min_block_means": 0.4872639973958333,
+      "global_max_block_means": 0.5083821614583334
+    }
+  },
+  {
+    "event": "eval",
+    "iter": 200,
+    "train_loss": 8.481894493103027,
+    "val_loss": 8.525568008422852,
+    "lr": 0.00019761815165727324,
+    "mfu": 0.2880357577457739,
+    "curvature": {
+      "type": "dynamic",
+      "dynamic_curvature": true,
+      "per_head_curvature": true,
+      "curvature_mode": "random",
+      "blocks": [
+        {
+          "block_index": 0,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.4873046875,
+            0.492919921875,
+            0.49853515625,
+            0.495849609375,
+            0.50341796875,
+            0.50048828125
+          ],
+          "overall_batch_mean": 0.4964192708333333
+        },
+        {
+          "block_index": 1,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.469970703125,
+            0.52490234375,
+            0.5068359375,
+            0.496337890625,
+            0.517578125,
+            0.51513671875
+          ],
+          "overall_batch_mean": 0.505126953125
+        },
+        {
+          "block_index": 2,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.487548828125,
+            0.4619140625,
+            0.464599609375,
+            0.52392578125,
+            0.49072265625,
+            0.486083984375
+          ],
+          "overall_batch_mean": 0.4857991536458333
+        },
+        {
+          "block_index": 3,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.50390625,
+            0.51318359375,
+            0.466552734375,
+            0.5087890625,
+            0.51318359375,
+            0.497802734375
+          ],
+          "overall_batch_mean": 0.5005696614583334
+        },
+        {
+          "block_index": 4,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.4794921875,
+            0.453857421875,
+            0.50439453125,
+            0.50439453125,
+            0.480712890625,
+            0.48095703125
+          ],
+          "overall_batch_mean": 0.4839680989583333
+        },
+        {
+          "block_index": 5,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.44384765625,
+            0.419677734375,
+            0.454833984375,
+            0.431640625,
+            0.41650390625,
+            0.447265625
+          ],
+          "overall_batch_mean": 0.4356282552083333
+        }
+      ],
+      "global_avg_block_means": 0.48458523220486116,
+      "global_min_block_means": 0.4356282552083333,
+      "global_max_block_means": 0.505126953125
+    }
+  },
+  {
+    "event": "eval",
+    "iter": 300,
+    "train_loss": 8.018068313598633,
+    "val_loss": 8.000164031982422,
+    "lr": 0.00019059204245072981,
+    "mfu": 0.27395969529881115,
+    "curvature": {
+      "type": "dynamic",
+      "dynamic_curvature": true,
+      "per_head_curvature": true,
+      "curvature_mode": "random",
+      "blocks": [
+        {
+          "block_index": 0,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.483154296875,
+            0.48388671875,
+            0.487060546875,
+            0.490966796875,
+            0.497314453125,
+            0.493896484375
+          ],
+          "overall_batch_mean": 0.4893798828125
+        },
+        {
+          "block_index": 1,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.437255859375,
+            0.50634765625,
+            0.501953125,
+            0.47314453125,
+            0.498291015625,
+            0.49658203125
+          ],
+          "overall_batch_mean": 0.485595703125
+        },
+        {
+          "block_index": 2,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.498779296875,
+            0.444091796875,
+            0.46533203125,
+            0.5458984375,
+            0.49267578125,
+            0.4697265625
+          ],
+          "overall_batch_mean": 0.486083984375
+        },
+        {
+          "block_index": 3,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.52734375,
+            0.4990234375,
+            0.45458984375,
+            0.484130859375,
+            0.4990234375,
+            0.50439453125
+          ],
+          "overall_batch_mean": 0.4947509765625
+        },
+        {
+          "block_index": 4,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.480224609375,
+            0.470947265625,
+            0.5146484375,
+            0.50146484375,
+            0.47705078125,
+            0.458251953125
+          ],
+          "overall_batch_mean": 0.4837646484375
+        },
+        {
+          "block_index": 5,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.40771484375,
+            0.407958984375,
+            0.453369140625,
+            0.418212890625,
+            0.410400390625,
+            0.422119140625
+          ],
+          "overall_batch_mean": 0.4199625651041667
+        }
+      ],
+      "global_avg_block_means": 0.4765896267361111,
+      "global_min_block_means": 0.4199625651041667,
+      "global_max_block_means": 0.4947509765625
+    }
+  },
+  {
+    "event": "eval",
+    "iter": 400,
+    "train_loss": 7.674156188964844,
+    "val_loss": 7.659739017486572,
+    "lr": 0.00017927399083446285,
+    "mfu": 0.2620206696607031,
+    "curvature": {
+      "type": "dynamic",
+      "dynamic_curvature": true,
+      "per_head_curvature": true,
+      "curvature_mode": "random",
+      "blocks": [
+        {
+          "block_index": 0,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.4736328125,
+            0.474609375,
+            0.480712890625,
+            0.479736328125,
+            0.486083984375,
+            0.48046875
+          ],
+          "overall_batch_mean": 0.4792073567708333
+        },
+        {
+          "block_index": 1,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.4365234375,
+            0.5029296875,
+            0.491455078125,
+            0.47216796875,
+            0.50341796875,
+            0.4833984375
+          ],
+          "overall_batch_mean": 0.4816487630208333
+        },
+        {
+          "block_index": 2,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.483642578125,
+            0.432373046875,
+            0.447509765625,
+            0.5498046875,
+            0.477294921875,
+            0.47119140625
+          ],
+          "overall_batch_mean": 0.4769694010416667
+        },
+        {
+          "block_index": 3,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.5146484375,
+            0.5166015625,
+            0.44775390625,
+            0.47705078125,
+            0.490966796875,
+            0.490966796875
+          ],
+          "overall_batch_mean": 0.4896647135416667
+        },
+        {
+          "block_index": 4,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.46435546875,
+            0.460693359375,
+            0.53955078125,
+            0.4990234375,
+            0.489501953125,
+            0.446533203125
+          ],
+          "overall_batch_mean": 0.4832763671875
+        },
+        {
+          "block_index": 5,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.4052734375,
+            0.400146484375,
+            0.46142578125,
+            0.44775390625,
+            0.3994140625,
+            0.412353515625
+          ],
+          "overall_batch_mean": 0.4210611979166667
+        }
+      ],
+      "global_avg_block_means": 0.4719712999131944,
+      "global_min_block_means": 0.4210611979166667,
+      "global_max_block_means": 0.4896647135416667
+    }
+  },
+  {
+    "event": "eval",
+    "iter": 500,
+    "train_loss": 7.485257148742676,
+    "val_loss": 7.695318698883057,
+    "lr": 0.0001642315311765797,
+    "mfu": 0.2527206518054953,
+    "curvature": {
+      "type": "dynamic",
+      "dynamic_curvature": true,
+      "per_head_curvature": true,
+      "curvature_mode": "random",
+      "blocks": [
+        {
+          "block_index": 0,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.466064453125,
+            0.465087890625,
+            0.472900390625,
+            0.47216796875,
+            0.47607421875,
+            0.472412109375
+          ],
+          "overall_batch_mean": 0.4707845052083333
+        },
+        {
+          "block_index": 1,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.43212890625,
+            0.498291015625,
+            0.482177734375,
+            0.46142578125,
+            0.498046875,
+            0.481689453125
+          ],
+          "overall_batch_mean": 0.4756266276041667
+        },
+        {
+          "block_index": 2,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.48876953125,
+            0.433349609375,
+            0.45361328125,
+            0.5458984375,
+            0.486328125,
+            0.46142578125
+          ],
+          "overall_batch_mean": 0.4782307942708333
+        },
+        {
+          "block_index": 3,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.5146484375,
+            0.54296875,
+            0.439697265625,
+            0.47998046875,
+            0.50390625,
+            0.489990234375
+          ],
+          "overall_batch_mean": 0.4951985677083333
+        },
+        {
+          "block_index": 4,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.470458984375,
+            0.475830078125,
+            0.5498046875,
+            0.50341796875,
+            0.48388671875,
+            0.456298828125
+          ],
+          "overall_batch_mean": 0.4899495442708333
+        },
+        {
+          "block_index": 5,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.431396484375,
+            0.41259765625,
+            0.479736328125,
+            0.453369140625,
+            0.411865234375,
+            0.422607421875
+          ],
+          "overall_batch_mean": 0.4352620442708333
+        }
+      ],
+      "global_avg_block_means": 0.47417534722222227,
+      "global_min_block_means": 0.4352620442708333,
+      "global_max_block_means": 0.4951985677083333
+    }
+  },
+  {
+    "event": "eval",
+    "iter": 600,
+    "train_loss": 7.653212070465088,
+    "val_loss": 7.502072334289551,
+    "lr": 0.00014621895521616803,
+    "mfu": 0.24507112310754106,
+    "curvature": {
+      "type": "dynamic",
+      "dynamic_curvature": true,
+      "per_head_curvature": true,
+      "curvature_mode": "random",
+      "blocks": [
+        {
+          "block_index": 0,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.4599609375,
+            0.460693359375,
+            0.468017578125,
+            0.4638671875,
+            0.47119140625,
+            0.465087890625
+          ],
+          "overall_batch_mean": 0.4648030598958333
+        },
+        {
+          "block_index": 1,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.418701171875,
+            0.494873046875,
+            0.4814453125,
+            0.454345703125,
+            0.492431640625,
+            0.489990234375
+          ],
+          "overall_batch_mean": 0.4719645182291667
+        },
+        {
+          "block_index": 2,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.482177734375,
+            0.44677734375,
+            0.4443359375,
+            0.54052734375,
+            0.5068359375,
+            0.482177734375
+          ],
+          "overall_batch_mean": 0.4838053385416667
+        },
+        {
+          "block_index": 3,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.51123046875,
+            0.5322265625,
+            0.446533203125,
+            0.4658203125,
+            0.499267578125,
+            0.4931640625
+          ],
+          "overall_batch_mean": 0.4913736979166667
+        },
+        {
+          "block_index": 4,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.470703125,
+            0.47900390625,
+            0.552734375,
+            0.51513671875,
+            0.4921875,
+            0.47900390625
+          ],
+          "overall_batch_mean": 0.4981282552083333
+        },
+        {
+          "block_index": 5,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.448974609375,
+            0.448486328125,
+            0.50537109375,
+            0.47607421875,
+            0.442138671875,
+            0.44580078125
+          ],
+          "overall_batch_mean": 0.4611409505208333
+        }
+      ],
+      "global_avg_block_means": 0.4785359700520834,
+      "global_min_block_means": 0.4611409505208333,
+      "global_max_block_means": 0.4981282552083333
+    }
+  },
+  {
+    "event": "eval",
+    "iter": 700,
+    "train_loss": 7.424463748931885,
+    "val_loss": 7.346035957336426,
+    "lr": 0.00012613948872584988,
+    "mfu": 0.23811669874709557,
+    "curvature": {
+      "type": "dynamic",
+      "dynamic_curvature": true,
+      "per_head_curvature": true,
+      "curvature_mode": "random",
+      "blocks": [
+        {
+          "block_index": 0,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.458984375,
+            0.448974609375,
+            0.457275390625,
+            0.45556640625,
+            0.46240234375,
+            0.456787109375
+          ],
+          "overall_batch_mean": 0.4566650390625
+        },
+        {
+          "block_index": 1,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.411865234375,
+            0.4931640625,
+            0.47119140625,
+            0.453857421875,
+            0.498779296875,
+            0.47119140625
+          ],
+          "overall_batch_mean": 0.4666748046875
+        },
+        {
+          "block_index": 2,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.490234375,
+            0.4150390625,
+            0.446044921875,
+            0.54736328125,
+            0.49560546875,
+            0.478759765625
+          ],
+          "overall_batch_mean": 0.4788411458333333
+        },
+        {
+          "block_index": 3,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.5009765625,
+            0.54296875,
+            0.443359375,
+            0.480224609375,
+            0.48388671875,
+            0.483642578125
+          ],
+          "overall_batch_mean": 0.4891764322916667
+        },
+        {
+          "block_index": 4,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.46533203125,
+            0.47607421875,
+            0.56494140625,
+            0.51220703125,
+            0.48583984375,
+            0.477294921875
+          ],
+          "overall_batch_mean": 0.4969482421875
+        },
+        {
+          "block_index": 5,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.469482421875,
+            0.476806640625,
+            0.52783203125,
+            0.51171875,
+            0.461181640625,
+            0.469482421875
+          ],
+          "overall_batch_mean": 0.486083984375
+        }
+      ],
+      "global_avg_block_means": 0.47906494140625,
+      "global_min_block_means": 0.4566650390625,
+      "global_max_block_means": 0.4969482421875
+    }
+  },
+  {
+    "event": "eval",
+    "iter": 800,
+    "train_loss": 7.219389915466309,
+    "val_loss": 7.338766574859619,
+    "lr": 0.000105,
+    "mfu": 0.2312874920982573,
+    "curvature": {
+      "type": "dynamic",
+      "dynamic_curvature": true,
+      "per_head_curvature": true,
+      "curvature_mode": "random",
+      "blocks": [
+        {
+          "block_index": 0,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.4462890625,
+            0.443359375,
+            0.451904296875,
+            0.449951171875,
+            0.457275390625,
+            0.4482421875
+          ],
+          "overall_batch_mean": 0.4495035807291667
+        },
+        {
+          "block_index": 1,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.402099609375,
+            0.486328125,
+            0.46337890625,
+            0.454833984375,
+            0.495361328125,
+            0.486328125
+          ],
+          "overall_batch_mean": 0.4647216796875
+        },
+        {
+          "block_index": 2,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.48193359375,
+            0.423828125,
+            0.4462890625,
+            0.56005859375,
+            0.50146484375,
+            0.4619140625
+          ],
+          "overall_batch_mean": 0.479248046875
+        },
+        {
+          "block_index": 3,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.5107421875,
+            0.55859375,
+            0.4462890625,
+            0.471435546875,
+            0.48974609375,
+            0.4931640625
+          ],
+          "overall_batch_mean": 0.4949951171875
+        },
+        {
+          "block_index": 4,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.4599609375,
+            0.486328125,
+            0.55810546875,
+            0.52587890625,
+            0.4951171875,
+            0.481689453125
+          ],
+          "overall_batch_mean": 0.5011800130208334
+        },
+        {
+          "block_index": 5,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.486328125,
+            0.491455078125,
+            0.544921875,
+            0.53369140625,
+            0.47412109375,
+            0.473388671875
+          ],
+          "overall_batch_mean": 0.5006510416666666
+        }
+      ],
+      "global_avg_block_means": 0.4817165798611111,
+      "global_min_block_means": 0.4495035807291667,
+      "global_max_block_means": 0.5011800130208334
+    }
+  },
+  {
+    "event": "eval",
+    "iter": 900,
+    "train_loss": 7.391759395599365,
+    "val_loss": 7.307778358459473,
+    "lr": 8.386051127415015e-05,
+    "mfu": 0.22801356030195566,
+    "curvature": {
+      "type": "dynamic",
+      "dynamic_curvature": true,
+      "per_head_curvature": true,
+      "curvature_mode": "random",
+      "blocks": [
+        {
+          "block_index": 0,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.445556640625,
+            0.436767578125,
+            0.450927734375,
+            0.446044921875,
+            0.45703125,
+            0.4384765625
+          ],
+          "overall_batch_mean": 0.44580078125
+        },
+        {
+          "block_index": 1,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.397705078125,
+            0.4873046875,
+            0.46142578125,
+            0.456787109375,
+            0.4931640625,
+            0.482666015625
+          ],
+          "overall_batch_mean": 0.4631754557291667
+        },
+        {
+          "block_index": 2,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.479736328125,
+            0.420654296875,
+            0.44287109375,
+            0.56005859375,
+            0.5,
+            0.461669921875
+          ],
+          "overall_batch_mean": 0.4774983723958333
+        },
+        {
+          "block_index": 3,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.505859375,
+            0.5625,
+            0.443603515625,
+            0.47802734375,
+            0.48681640625,
+            0.501953125
+          ],
+          "overall_batch_mean": 0.4964599609375
+        },
+        {
+          "block_index": 4,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.46728515625,
+            0.488525390625,
+            0.55517578125,
+            0.52001953125,
+            0.4990234375,
+            0.488037109375
+          ],
+          "overall_batch_mean": 0.5030110677083334
+        },
+        {
+          "block_index": 5,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.486572265625,
+            0.5009765625,
+            0.55810546875,
+            0.5439453125,
+            0.487060546875,
+            0.478759765625
+          ],
+          "overall_batch_mean": 0.5092366536458334
+        }
+      ],
+      "global_avg_block_means": 0.4825303819444445,
+      "global_min_block_means": 0.44580078125,
+      "global_max_block_means": 0.5092366536458334
+    }
+  },
+  {
+    "event": "eval",
+    "iter": 1000,
+    "train_loss": 7.2617363929748535,
+    "val_loss": 7.294914245605469,
+    "lr": 6.378104478383199e-05,
+    "mfu": 0.22502084791924948,
+    "curvature": {
+      "type": "dynamic",
+      "dynamic_curvature": true,
+      "per_head_curvature": true,
+      "curvature_mode": "random",
+      "blocks": [
+        {
+          "block_index": 0,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.440185546875,
+            0.43603515625,
+            0.4423828125,
+            0.44189453125,
+            0.452392578125,
+            0.43798828125
+          ],
+          "overall_batch_mean": 0.4418131510416667
+        },
+        {
+          "block_index": 1,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.410888671875,
+            0.4794921875,
+            0.47412109375,
+            0.449462890625,
+            0.485595703125,
+            0.478759765625
+          ],
+          "overall_batch_mean": 0.4630533854166667
+        },
+        {
+          "block_index": 2,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.467529296875,
+            0.403076171875,
+            0.455078125,
+            0.556640625,
+            0.49658203125,
+            0.4912109375
+          ],
+          "overall_batch_mean": 0.4783528645833333
+        },
+        {
+          "block_index": 3,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.487060546875,
+            0.57421875,
+            0.45849609375,
+            0.458251953125,
+            0.47900390625,
+            0.5087890625
+          ],
+          "overall_batch_mean": 0.4943033854166667
+        },
+        {
+          "block_index": 4,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.465087890625,
+            0.490234375,
+            0.5634765625,
+            0.525390625,
+            0.476806640625,
+            0.4853515625
+          ],
+          "overall_batch_mean": 0.5010579427083334
+        },
+        {
+          "block_index": 5,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.50732421875,
+            0.51220703125,
+            0.57373046875,
+            0.5537109375,
+            0.48779296875,
+            0.5009765625
+          ],
+          "overall_batch_mean": 0.5226236979166666
+        }
+      ],
+      "global_avg_block_means": 0.4835340711805556,
+      "global_min_block_means": 0.4418131510416667,
+      "global_max_block_means": 0.5226236979166666
+    }
+  },
+  {
+    "event": "eval",
+    "iter": 1100,
+    "train_loss": 7.297898292541504,
+    "val_loss": 7.113476753234863,
+    "lr": 4.576846882342032e-05,
+    "mfu": 0.22084722077874352,
+    "curvature": {
+      "type": "dynamic",
+      "dynamic_curvature": true,
+      "per_head_curvature": true,
+      "curvature_mode": "random",
+      "blocks": [
+        {
+          "block_index": 0,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.434814453125,
+            0.43359375,
+            0.444580078125,
+            0.444091796875,
+            0.4501953125,
+            0.4375
+          ],
+          "overall_batch_mean": 0.4407958984375
+        },
+        {
+          "block_index": 1,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.404541015625,
+            0.491943359375,
+            0.461181640625,
+            0.451904296875,
+            0.49267578125,
+            0.472900390625
+          ],
+          "overall_batch_mean": 0.4625244140625
+        },
+        {
+          "block_index": 2,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.49072265625,
+            0.397216796875,
+            0.45458984375,
+            0.55322265625,
+            0.498046875,
+            0.480224609375
+          ],
+          "overall_batch_mean": 0.47900390625
+        },
+        {
+          "block_index": 3,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.492431640625,
+            0.568359375,
+            0.460693359375,
+            0.457275390625,
+            0.479248046875,
+            0.50244140625
+          ],
+          "overall_batch_mean": 0.493408203125
+        },
+        {
+          "block_index": 4,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.4697265625,
+            0.50048828125,
+            0.56396484375,
+            0.53515625,
+            0.467529296875,
+            0.4755859375
+          ],
+          "overall_batch_mean": 0.5020751953125
+        },
+        {
+          "block_index": 5,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.51513671875,
+            0.5087890625,
+            0.580078125,
+            0.57080078125,
+            0.498291015625,
+            0.484619140625
+          ],
+          "overall_batch_mean": 0.5262858072916666
+        }
+      ],
+      "global_avg_block_means": 0.48401557074652773,
+      "global_min_block_means": 0.4407958984375,
+      "global_max_block_means": 0.5262858072916666
+    }
+  },
+  {
+    "event": "eval",
+    "iter": 1200,
+    "train_loss": 7.229417324066162,
+    "val_loss": 7.203925132751465,
+    "lr": 3.072600916553717e-05,
+    "mfu": 0.21869538846088044,
+    "curvature": {
+      "type": "dynamic",
+      "dynamic_curvature": true,
+      "per_head_curvature": true,
+      "curvature_mode": "random",
+      "blocks": [
+        {
+          "block_index": 0,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.43408203125,
+            0.43115234375,
+            0.4404296875,
+            0.4384765625,
+            0.443359375,
+            0.435791015625
+          ],
+          "overall_batch_mean": 0.4372151692708333
+        },
+        {
+          "block_index": 1,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.3994140625,
+            0.472900390625,
+            0.46044921875,
+            0.439697265625,
+            0.488525390625,
+            0.46923828125
+          ],
+          "overall_batch_mean": 0.4550374348958333
+        },
+        {
+          "block_index": 2,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.46728515625,
+            0.40625,
+            0.45947265625,
+            0.56005859375,
+            0.5029296875,
+            0.469482421875
+          ],
+          "overall_batch_mean": 0.4775797526041667
+        },
+        {
+          "block_index": 3,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.482666015625,
+            0.56494140625,
+            0.4765625,
+            0.4658203125,
+            0.494384765625,
+            0.49072265625
+          ],
+          "overall_batch_mean": 0.495849609375
+        },
+        {
+          "block_index": 4,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.47119140625,
+            0.490234375,
+            0.56201171875,
+            0.5361328125,
+            0.4873046875,
+            0.468017578125
+          ],
+          "overall_batch_mean": 0.5024820963541666
+        },
+        {
+          "block_index": 5,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.50830078125,
+            0.50146484375,
+            0.578125,
+            0.5625,
+            0.5048828125,
+            0.48779296875
+          ],
+          "overall_batch_mean": 0.5238444010416666
+        }
+      ],
+      "global_avg_block_means": 0.48200141059027773,
+      "global_min_block_means": 0.4372151692708333,
+      "global_max_block_means": 0.5238444010416666
+    }
+  },
+  {
+    "event": "eval",
+    "iter": 1300,
+    "train_loss": 7.321186065673828,
+    "val_loss": 7.169711112976074,
+    "lr": 1.9407957549270194e-05,
+    "mfu": 0.22144079427073132,
+    "curvature": {
+      "type": "dynamic",
+      "dynamic_curvature": true,
+      "per_head_curvature": true,
+      "curvature_mode": "random",
+      "blocks": [
+        {
+          "block_index": 0,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.432861328125,
+            0.429931640625,
+            0.439208984375,
+            0.437255859375,
+            0.442138671875,
+            0.4345703125
+          ],
+          "overall_batch_mean": 0.4359944661458333
+        },
+        {
+          "block_index": 1,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.3974609375,
+            0.474853515625,
+            0.460205078125,
+            0.432861328125,
+            0.484130859375,
+            0.468994140625
+          ],
+          "overall_batch_mean": 0.4530843098958333
+        },
+        {
+          "block_index": 2,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.454833984375,
+            0.400390625,
+            0.464111328125,
+            0.564453125,
+            0.485107421875,
+            0.47607421875
+          ],
+          "overall_batch_mean": 0.4741617838541667
+        },
+        {
+          "block_index": 3,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.50439453125,
+            0.56640625,
+            0.47607421875,
+            0.469970703125,
+            0.485107421875,
+            0.4921875
+          ],
+          "overall_batch_mean": 0.4990234375
+        },
+        {
+          "block_index": 4,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.471435546875,
+            0.482421875,
+            0.5712890625,
+            0.53125,
+            0.488037109375,
+            0.47412109375
+          ],
+          "overall_batch_mean": 0.5030924479166666
+        },
+        {
+          "block_index": 5,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.50634765625,
+            0.51220703125,
+            0.58251953125,
+            0.55224609375,
+            0.50244140625,
+            0.490966796875
+          ],
+          "overall_batch_mean": 0.5244547526041666
+        }
+      ],
+      "global_avg_block_means": 0.48163519965277773,
+      "global_min_block_means": 0.4359944661458333,
+      "global_max_block_means": 0.5244547526041666
+    }
+  },
+  {
+    "event": "eval",
+    "iter": 1400,
+    "train_loss": 7.104879856109619,
+    "val_loss": 7.353534698486328,
+    "lr": 1.2381848342726758e-05,
+    "mfu": 0.22287906477437072,
+    "curvature": {
+      "type": "dynamic",
+      "dynamic_curvature": true,
+      "per_head_curvature": true,
+      "curvature_mode": "random",
+      "blocks": [
+        {
+          "block_index": 0,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.432861328125,
+            0.427490234375,
+            0.4365234375,
+            0.437255859375,
+            0.444580078125,
+            0.43603515625
+          ],
+          "overall_batch_mean": 0.435791015625
+        },
+        {
+          "block_index": 1,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.3818359375,
+            0.470458984375,
+            0.457763671875,
+            0.433837890625,
+            0.484619140625,
+            0.4716796875
+          ],
+          "overall_batch_mean": 0.4500325520833333
+        },
+        {
+          "block_index": 2,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.482177734375,
+            0.384765625,
+            0.46044921875,
+            0.57763671875,
+            0.4990234375,
+            0.472900390625
+          ],
+          "overall_batch_mean": 0.4794921875
+        },
+        {
+          "block_index": 3,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.50732421875,
+            0.5615234375,
+            0.457763671875,
+            0.45751953125,
+            0.48828125,
+            0.51220703125
+          ],
+          "overall_batch_mean": 0.4974365234375
+        },
+        {
+          "block_index": 4,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.4677734375,
+            0.49853515625,
+            0.56640625,
+            0.51220703125,
+            0.490234375,
+            0.482177734375
+          ],
+          "overall_batch_mean": 0.5028889973958334
+        },
+        {
+          "block_index": 5,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.492919921875,
+            0.5185546875,
+            0.56884765625,
+            0.552734375,
+            0.513671875,
+            0.495849609375
+          ],
+          "overall_batch_mean": 0.5237630208333334
+        }
+      ],
+      "global_avg_block_means": 0.4815673828125,
+      "global_min_block_means": 0.435791015625,
+      "global_max_block_means": 0.5237630208333334
+    }
+  },
+  {
+    "event": "eval",
+    "iter": 1500,
+    "train_loss": 7.172402858734131,
+    "val_loss": 7.304572105407715,
+    "lr": 1e-05,
+    "mfu": 0.22426960878977192,
+    "curvature": {
+      "type": "dynamic",
+      "dynamic_curvature": true,
+      "per_head_curvature": true,
+      "curvature_mode": "random",
+      "blocks": [
+        {
+          "block_index": 0,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.430419921875,
+            0.425537109375,
+            0.439208984375,
+            0.438232421875,
+            0.443603515625,
+            0.43115234375
+          ],
+          "overall_batch_mean": 0.4346923828125
+        },
+        {
+          "block_index": 1,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.39501953125,
+            0.470947265625,
+            0.46337890625,
+            0.443115234375,
+            0.488525390625,
+            0.48095703125
+          ],
+          "overall_batch_mean": 0.4569905598958333
+        },
+        {
+          "block_index": 2,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.4716796875,
+            0.37646484375,
+            0.457763671875,
+            0.544921875,
+            0.483642578125,
+            0.478271484375
+          ],
+          "overall_batch_mean": 0.4687906901041667
+        },
+        {
+          "block_index": 3,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.49072265625,
+            0.5830078125,
+            0.479248046875,
+            0.478515625,
+            0.4853515625,
+            0.495361328125
+          ],
+          "overall_batch_mean": 0.5020345052083334
+        },
+        {
+          "block_index": 4,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.480224609375,
+            0.4697265625,
+            0.55810546875,
+            0.509765625,
+            0.4912109375,
+            0.483642578125
+          ],
+          "overall_batch_mean": 0.498779296875
+        },
+        {
+          "block_index": 5,
+          "batch_mean_shape": [
+            6
+          ],
+          "head_means": [
+            0.51025390625,
+            0.51611328125,
+            0.564453125,
+            0.5615234375,
+            0.501953125,
+            0.50439453125
+          ],
+          "overall_batch_mean": 0.5264485677083334
+        }
+      ],
+      "global_avg_block_means": 0.48128933376736116,
+      "global_min_block_means": 0.4346923828125,
+      "global_max_block_means": 0.5264485677083334
+    }
+  }
+]
