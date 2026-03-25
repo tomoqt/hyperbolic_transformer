@@ -19,6 +19,25 @@ def read_json(path: Path) -> dict:
         return json.load(handle)
 
 
+def json_safe(value: Any):
+    if isinstance(value, torch.Tensor):
+        if value.numel() == 1:
+            return value.detach().cpu().item()
+        return value.detach().cpu().tolist()
+    if isinstance(value, dict):
+        return {key: json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [json_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return [json_safe(item) for item in value]
+    if hasattr(value, "item") and callable(value.item):
+        try:
+            return value.item()
+        except Exception:
+            pass
+    return value
+
+
 def parse_history(log_path: Path) -> List[Dict[str, Any]]:
     history: List[Dict[str, Any]] = []
     if not log_path.exists():
@@ -88,6 +107,7 @@ def summarize_run(run_dir: Path) -> Optional[dict]:
     if "sweep_parameter_sort" not in summary and "sweep_parameter_value" in summary:
         summary["sweep_parameter_sort"] = summary["sweep_parameter_value"]
 
+    summary = json_safe(summary)
     with open(summary_path, "w") as handle:
         json.dump(summary, handle, indent=2)
 
@@ -141,6 +161,7 @@ def main():
             summaries.append(summary)
 
     aggregate = build_aggregate(summaries)
+    aggregate = json_safe(aggregate)
     aggregate_path = run_root / "aggregate_summary.json"
     with open(aggregate_path, "w") as handle:
         json.dump(aggregate, handle, indent=2)
